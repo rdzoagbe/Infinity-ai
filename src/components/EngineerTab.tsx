@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import { motion } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
 import { Download, Gauge, Pause, Play, Radio, SlidersHorizontal, Volume2 } from 'lucide-react';
@@ -25,6 +26,24 @@ const stemColor = (kind: Stem['kind']) => {
   if (kind === 'vocal') return 'border-cyan/50 bg-cyan/20 text-cyan shadow-cyan';
   if (kind === 'beat') return 'border-magenta/50 bg-magenta/20 text-magenta shadow-magenta';
   return 'border-white/15 bg-white/10 text-white/75';
+};
+
+const safeFileName = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '') || 'audiomagic';
+
+const fetchBlob = async (url: string) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not read ${url}`);
+  return response.blob();
+};
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 };
 
 export default function EngineerTab({ project, onProjectChange }: EngineerTabProps) {
@@ -202,35 +221,54 @@ export default function EngineerTab({ project, onProjectChange }: EngineerTabPro
     onProjectChange({ stems: updatedStems, status: 'Mixing' });
   };
 
-  const triggerZipDownload = () => {
-    const manifest = JSON.stringify(
-      {
-        project: project.trackName,
-        exportedAt: new Date().toISOString(),
-        stems: project.stems.map((stem) => ({
-          name: stem.name,
-          fileName: stem.fileName,
-          kind: stem.kind,
-          pan: stem.pan,
-          gain: stem.gain,
-        })),
-        masters: {
-          raw: Boolean(rawSource),
-          aiMaster: Boolean(aiSource),
+  const triggerZipDownload = async () => {
+    const zip = new JSZip();
+    const projectSlug = safeFileName(project.trackName);
+
+    zip.file('lyrics.txt', project.lyrics || 'No lyrics written yet.');
+    zip.file(
+      'project.json',
+      JSON.stringify(
+        {
+          project: project.trackName,
+          exportedAt: new Date().toISOString(),
+          stems: project.stems.map((stem) => ({
+            name: stem.name,
+            fileName: stem.fileName,
+            kind: stem.kind,
+            pan: stem.pan,
+            gain: stem.gain,
+            position: stem.position,
+          })),
+          masters: {
+            raw: Boolean(rawSource),
+            aiMaster: Boolean(aiSource),
+          },
         },
-        note: 'Frontend MVP simulation: replace this manifest blob with a backend ZIP export service.',
-      },
-      null,
-      2,
+        null,
+        2,
+      ),
     );
 
-    const blob = new Blob([manifest], { type: 'application/zip' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${project.trackName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-stems-master.zip`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    const stemFolder = zip.folder('stems');
+    await Promise.all(
+      project.stems.map(async (stem, index) => {
+        try {
+          const blob = await fetchBlob(stem.url);
+          const fallbackExtension = blob.type.includes('webm') ? 'webm' : blob.type.includes('wav') ? 'wav' : 'audio';
+          const fileName = safeFileName(stem.fileName ?? `${String(index + 1).padStart(2, '0')}-${stem.name}.${fallbackExtension}`);
+          stemFolder?.file(fileName, blob);
+        } catch {
+          stemFolder?.file(
+            `${String(index + 1).padStart(2, '0')}-${safeFileName(stem.name)}.txt`,
+            `This stem could not be embedded from its browser object URL.\nStem: ${stem.name}\nKind: ${stem.kind}`,
+          );
+        }
+      }),
+    );
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(zipBlob, `${projectSlug}-audiomagic-export.zip`);
   };
 
   return (

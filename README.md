@@ -30,3 +30,11 @@ src/index.css
 ## Notes
 
 This MVP is frontend-only. The AI co-writer, AI beat generation, AI mastering, and ZIP export are intentionally simulated but isolated behind component-level functions so real services can replace them.
+
+
+## Added from AudioMagic_AI_Project.zip
+
+- Producer Beat Library: 8 genres with 3 selectable patterns each.
+- In-browser beat rendering to WAV using `OfflineAudioContext`.
+- Real ZIP export through JSZip, including lyrics, project metadata, and available stems.
+- Orbitron/Rajdhani font identity and restored GitHub Actions build workflow.

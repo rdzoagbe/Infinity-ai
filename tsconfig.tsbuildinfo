@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/audioengine.ts","./src/beatlibrary.ts","./src/main.tsx","./src/types.ts","./src/utils.ts","./src/components/artisttab.tsx","./src/components/dashboard.tsx","./src/components/engineertab.tsx","./src/components/producertab.tsx","./src/components/workspace.tsx"],"version":"5.9.3"}

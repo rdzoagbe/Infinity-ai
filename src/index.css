@@ -5,7 +5,7 @@
 :root {
   color-scheme: dark;
   background: #101116;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Rajdhani', Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
@@ -45,4 +45,8 @@ body {
 
 .wave-active .wave-bar {
   animation-play-state: running;
+}
+
+.font-display {
+  font-family: 'Orbitron', ui-sans-serif, system-ui, sans-serif;
 }
