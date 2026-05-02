@@ -1,40 +1,36 @@
-# AudioMagic.ai Frontend MVP
+# AudioMagic.ai Frontend MVP v3
 
-A premium dark-mode Vite + React + TypeScript MVP for an all-in-one music production platform serving three personas in one persistent workspace:
+A premium dark-mode Vite + React + TypeScript MVP for a guided music-production workflow:
 
-- **Artist Mode**: lyrics notepad, simulated AI co-writer, MediaRecorder vocal capture, voice cloning consent UX.
-- **Producer Mode**: recorded vocal preview, AI beat prompt simulation, generated browser-rendered beat, drag/drop stem uploads using `URL.createObjectURL()`.
-- **Engineer Mode**: Framer Motion spatial stem tokens, Web Audio API `StereoPannerNode` and `GainNode`, master playback, time-synced Raw / AI Master A/B compare, reactive waveform, simulated ZIP export.
+**Lyrics → Producer → Engineer → Export**
 
-## Run
+## v3 Highlights
+
+- Clickable dashboard stat cards that filter projects by workflow state.
+- New **Lyrics to Song** dashboard section where lyrics can be pasted directly.
+- Genre and beat-pattern selection from the Producer Beat Library before creating a song.
+- Automatic routing from Dashboard to Producer Mode after creating a lyrics-based project.
+- Producer Mode now reads the lyrics, renders the selected beat as a browser-generated WAV, creates an arrangement brief, and includes **Send to Engineer**.
+- Engineer Mode includes a producer handoff summary, visual Sonic Stage, draggable stems, stereo pan/depth gain adjustment, A/B comparison, and real JSZip export.
+- GitHub Actions workflow included for build validation.
+
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Files
+## Build
 
-```text
-src/App.tsx
-src/components/Dashboard.tsx
-src/components/Workspace.tsx
-src/components/ArtistTab.tsx
-src/components/ProducerTab.tsx
-src/components/EngineerTab.tsx
-src/types.ts
-src/utils.ts
-src/index.css
+```bash
+npm run build
 ```
+
+## Stack
+
+React 18, TypeScript, Vite, Tailwind CSS, Framer Motion, lucide-react, JSZip, Web Audio API.
 
 ## Notes
 
-This MVP is frontend-only. The AI co-writer, AI beat generation, AI mastering, and ZIP export are intentionally simulated but isolated behind component-level functions so real services can replace them.
-
-
-## Added from AudioMagic_AI_Project.zip
-
-- Producer Beat Library: 8 genres with 3 selectable patterns each.
-- In-browser beat rendering to WAV using `OfflineAudioContext`.
-- Real ZIP export through JSZip, including lyrics, project metadata, and available stems.
-- Orbitron/Rajdhani font identity and restored GitHub Actions build workflow.
+The AI co-writer, beat generation, AI mastering, and engineering features are frontend MVP simulations. The beat engine generates browser-rendered WAV files using the Web Audio API. Real AI generation, cloud storage, authentication, and payment features should be added through backend services in a later phase.

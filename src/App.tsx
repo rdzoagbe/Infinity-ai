@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import Dashboard from './components/Dashboard';
 import Workspace from './components/Workspace';
 import { createProject, seedProjects } from './utils';
-import type { Project } from './types';
+import type { Project, SongCreationPayload } from './types';
 import { useMemo, useState } from 'react';
 
 function WorkspaceRoute({ projects, onProjectUpdate }: { projects: Project[]; onProjectUpdate: (project: Project) => void }) {
@@ -25,19 +25,19 @@ export default function App() {
   const handleStartProject = () => {
     const project = createProject(projects.length + 1);
     setProjects((current) => [project, ...current]);
-    navigate(`/workspace/${project.id}`);
+    navigate(`/workspace/${project.id}?mode=artist`);
+  };
+
+  const handleCreateSong = (payload: SongCreationPayload) => {
+    const project = createProject(projects.length + 1, payload);
+    setProjects((current) => [project, ...current]);
+    navigate(`/workspace/${project.id}?mode=producer`);
   };
 
   return (
     <Routes>
-      <Route
-        path="/"
-        element={<Dashboard projects={projects} onStartProject={handleStartProject} />}
-      />
-      <Route
-        path="/workspace/:projectId"
-        element={<WorkspaceRoute projects={projects} onProjectUpdate={handleProjectUpdate} />}
-      />
+      <Route path="/" element={<Dashboard projects={projects} onStartProject={handleStartProject} onCreateSong={handleCreateSong} />} />
+      <Route path="/workspace/:projectId" element={<WorkspaceRoute projects={projects} onProjectUpdate={handleProjectUpdate} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

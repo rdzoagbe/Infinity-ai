@@ -30,4 +30,16 @@ export interface Project {
   stems: Stem[];
   rawMasterUrl?: string;
   aiMasterUrl?: string;
+  selectedGenreId?: string;
+  selectedBeatName?: string;
+  arrangement?: string;
+  producerNotes?: string;
+}
+
+export interface SongCreationPayload {
+  trackName: string;
+  lyrics: string;
+  selectedGenreId: string;
+  selectedBeatName: string;
+  prompt?: string;
 }

@@ -271,8 +271,44 @@ export default function EngineerTab({ project, onProjectChange }: EngineerTabPro
     downloadBlob(zipBlob, `${projectSlug}-audiomagic-export.zip`);
   };
 
+  const vocalCount = project.stems.filter((stem) => stem.kind === 'vocal').length;
+  const beatCount = project.stems.filter((stem) => stem.kind === 'beat').length;
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+    <div className="grid gap-5">
+      <section className="rounded-[2rem] border border-cyan/10 bg-glass/80 p-5 shadow-panel backdrop-blur-xl">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-cyan">Producer Handoff</p>
+            <h2 className="mt-2 text-2xl font-semibold">Musical visual dashboard for final adjustment</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/45">
+              The producer handoff arrives here with lyrics, beat direction, stems, and arrangement notes. Drag each sound source in the Sonic Stage to adjust stereo position and depth before export.
+            </p>
+          </div>
+          <div className="grid min-w-[280px] grid-cols-3 gap-2 text-center">
+            {[
+              ['Vocals', vocalCount],
+              ['Beats', beatCount],
+              ['Stems', project.stems.length],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-white/5 bg-black/25 p-3">
+                <p className="text-2xl font-semibold text-white">{value}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/35">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        {project.arrangement && (
+          <div className="mt-5 whitespace-pre-line rounded-3xl border border-magenta/20 bg-magenta/10 p-4 text-sm leading-6 text-white/55">
+            <div className="mb-2 flex items-center gap-2 font-semibold text-magenta">
+              <Gauge className="h-4 w-4" /> Producer arrangement
+            </div>
+            {project.arrangement}
+          </div>
+        )}
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
       <section className={panel}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -432,6 +468,7 @@ export default function EngineerTab({ project, onProjectChange }: EngineerTabPro
 
         <audio ref={masterRef} hidden onEnded={() => setIsPlaying(false)} />
       </section>
+      </div>
     </div>
   );
 }
