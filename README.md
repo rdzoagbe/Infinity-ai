@@ -1,14 +1,10 @@
 # AudioMagic.ai Frontend MVP
 
-A premium dark-mode Vite + React + TypeScript MVP for an all-in-one music production platform serving three personas in one persistent workspace.
+A premium dark-mode Vite + React + TypeScript MVP for an all-in-one music production platform serving three personas in one persistent workspace:
 
-## Features
-
-- Studio Dashboard with project stats, cards, and Start New Project flow.
-- Unified Workspace with persistent Artist, Producer, and Engineer modes.
-- Artist Mode: smart lyrics notepad, simulated AI co-writer, MediaRecorder vocal recording, and voice cloning consent UI.
-- Producer Mode: vocal preview, simulated beat generation, drag/drop stem upload, playable stems.
-- Engineer Mode: Framer Motion spatial mixing stage, Web Audio API pan/gain wiring, master playback, Raw / AI Master A/B compare, reactive waveform, and simulated ZIP export.
+- **Artist Mode**: lyrics notepad, simulated AI co-writer, MediaRecorder vocal capture, voice cloning consent UX.
+- **Producer Mode**: recorded vocal preview, AI beat prompt simulation, generated browser-rendered beat, drag/drop stem uploads using `URL.createObjectURL()`.
+- **Engineer Mode**: Framer Motion spatial stem tokens, Web Audio API `StereoPannerNode` and `GainNode`, master playback, time-synced Raw / AI Master A/B compare, reactive waveform, simulated ZIP export.
 
 ## Run
 
@@ -17,10 +13,20 @@ npm install
 npm run dev
 ```
 
-## Stack
+## Files
 
-React 18, TypeScript, Vite, Tailwind CSS, Framer Motion, lucide-react, Web Audio API.
+```text
+src/App.tsx
+src/components/Dashboard.tsx
+src/components/Workspace.tsx
+src/components/ArtistTab.tsx
+src/components/ProducerTab.tsx
+src/components/EngineerTab.tsx
+src/types.ts
+src/utils.ts
+src/index.css
+```
 
 ## Notes
 
-The AI co-writer, AI beat generation, AI mastering, and ZIP export are frontend simulations. They are intentionally isolated so backend AI/audio services can replace them later.
+This MVP is frontend-only. The AI co-writer, AI beat generation, AI mastering, and ZIP export are intentionally simulated but isolated behind component-level functions so real services can replace them.
