@@ -46,7 +46,10 @@ const readStoredProjects = (userId: string) => {
 export default function App() {
   const [language, setLanguage] = useState<AppLanguage>(() => readStoredLanguage());
   const [session, setSession] = useState<UserSession | null>(() => readStoredSession());
-  const [projects, setProjects] = useState<Project[]>(() => (readStoredSession() ? readStoredProjects(readStoredSession()!.id) : []));
+  const [projects, setProjects] = useState<Project[]>(() => {
+    const storedSession = readStoredSession();
+    return storedSession ? readStoredProjects(storedSession.id) : [];
+  });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,13 +66,6 @@ export default function App() {
     setSession(nextSession);
     setProjects(readStoredProjects(nextSession.id));
     navigate('/dashboard');
-  };
-
-  const handleLogout = () => {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    setSession(null);
-    setProjects([]);
-    navigate('/');
   };
 
   const handleProjectUpdate = (project: Project) => {
@@ -95,15 +91,7 @@ export default function App() {
         path="/dashboard"
         element={
           session ? (
-            <Dashboard
-              projects={projects}
-              onStartProject={handleStartProject}
-              onCreateSong={handleCreateSong}
-              session={session}
-              language={language}
-              onLanguageChange={setLanguage}
-              onLogout={handleLogout}
-            />
+            <Dashboard projects={projects} onStartProject={handleStartProject} onCreateSong={handleCreateSong} />
           ) : (
             <Navigate to="/" replace />
           )
