@@ -3,6 +3,9 @@ export type WorkspaceMode = 'artist' | 'producer' | 'engineer';
 export type StemKind = 'vocal' | 'beat' | 'stem' | 'master';
 export type LifecycleStageId = 'idea' | 'lyrics' | 'demo' | 'beat' | 'arrangement' | 'recording' | 'mix' | 'master' | 'release';
 export type SessionLaneId = 'artist' | 'producer' | 'engineer';
+export type ApprovalStatus = 'pending' | 'approved' | 'changes_requested';
+export type VersionKind = 'demo' | 'beat' | 'mix' | 'master' | 'release';
+export type ExportAssetId = 'wavMaster' | 'mp3Preview' | 'stemsZip' | 'instrumental' | 'acapella' | 'lyricsPdf' | 'releaseNotes';
 
 export interface StemPosition {
   x: number;
@@ -45,6 +48,47 @@ export interface ReleaseChecklist {
   metadata: boolean;
 }
 
+export interface RecordingTake {
+  id: string;
+  name: string;
+  section: string;
+  stemId?: string;
+  createdAt: string;
+  durationLabel: string;
+  rating: number;
+  selected: boolean;
+  note: string;
+}
+
+export interface ApprovalGate {
+  id: SessionLaneId | 'final';
+  label: string;
+  owner: 'Artist' | 'Producer' | 'Engineer' | 'System';
+  status: ApprovalStatus;
+  note: string;
+  updatedAt: string;
+}
+
+export interface VersionRecord {
+  id: string;
+  label: string;
+  kind: VersionKind;
+  createdAt: string;
+  owner: 'Artist' | 'Producer' | 'Engineer' | 'System';
+  summary: string;
+  stemCount: number;
+  approved: boolean;
+}
+
+export interface ExportPackage {
+  id: string;
+  name: string;
+  createdAt: string;
+  assets: Record<ExportAssetId, boolean>;
+  notes: string;
+  ready: boolean;
+}
+
 export interface Project {
   id: string;
   trackName: string;
@@ -68,6 +112,11 @@ export interface Project {
   arrangementSections?: ArrangementSection[];
   sessionHistory?: SessionHistoryEvent[];
   releaseChecklist?: ReleaseChecklist;
+  recordingTakes?: RecordingTake[];
+  activeTakeId?: string;
+  approvals?: ApprovalGate[];
+  versionHistory?: VersionRecord[];
+  exportPackages?: ExportPackage[];
 }
 
 export interface SongCreationPayload {

@@ -1,4 +1,17 @@
-import type { ArrangementSection, Project, ProjectStatus, ReleaseChecklist, SessionHistoryEvent, SongCreationPayload, Stem } from './types';
+import type {
+  ApprovalGate,
+  ArrangementSection,
+  ExportAssetId,
+  ExportPackage,
+  Project,
+  ProjectStatus,
+  RecordingTake,
+  ReleaseChecklist,
+  SessionHistoryEvent,
+  SongCreationPayload,
+  Stem,
+  VersionRecord,
+} from './types';
 
 export const nowLabel = () =>
   new Intl.DateTimeFormat('en', {
@@ -29,6 +42,24 @@ export const defaultReleaseChecklist = (overrides?: Partial<ReleaseChecklist>): 
   ...overrides,
 });
 
+export const defaultApprovalGates = (timestamp = nowLabel()): ApprovalGate[] => [
+  { id: 'artist', label: 'Artist approval', owner: 'Artist', status: 'pending', note: 'Artist needs to approve lyrics, vocal direction, and emotion.', updatedAt: timestamp },
+  { id: 'producer', label: 'Producer approval', owner: 'Producer', status: 'pending', note: 'Producer needs to approve beat, structure, and stem handoff.', updatedAt: timestamp },
+  { id: 'engineer', label: 'Engineer approval', owner: 'Engineer', status: 'pending', note: 'Engineer needs to approve mix balance, stereo field, and master readiness.', updatedAt: timestamp },
+  { id: 'final', label: 'Final master approval', owner: 'System', status: 'pending', note: 'Final release approval is pending.', updatedAt: timestamp },
+];
+
+export const defaultExportAssets = (overrides?: Partial<Record<ExportAssetId, boolean>>): Record<ExportAssetId, boolean> => ({
+  wavMaster: true,
+  mp3Preview: true,
+  stemsZip: true,
+  instrumental: false,
+  acapella: false,
+  lyricsPdf: true,
+  releaseNotes: true,
+  ...overrides,
+});
+
 export const createHistoryEvent = (message: string, actor: SessionHistoryEvent['actor'] = 'System'): SessionHistoryEvent => ({
   id: id('event'),
   timestamp: nowLabel(),
@@ -36,8 +67,48 @@ export const createHistoryEvent = (message: string, actor: SessionHistoryEvent['
   message,
 });
 
+export const createVersionRecord = (
+  label: string,
+  kind: VersionRecord['kind'],
+  owner: VersionRecord['owner'],
+  summary: string,
+  stemCount: number,
+  approved = false,
+): VersionRecord => ({
+  id: id('version'),
+  label,
+  kind,
+  owner,
+  summary,
+  stemCount,
+  approved,
+  createdAt: nowLabel(),
+});
+
+export const createRecordingTake = (name: string, section: string, stemId?: string, note = ''): RecordingTake => ({
+  id: id('take'),
+  name,
+  section,
+  stemId,
+  createdAt: nowLabel(),
+  durationLabel: 'Browser take',
+  rating: 3,
+  selected: false,
+  note,
+});
+
+export const createExportPackage = (name: string, assets: Record<ExportAssetId, boolean>, notes: string): ExportPackage => ({
+  id: id('export'),
+  name,
+  assets,
+  notes,
+  createdAt: nowLabel(),
+  ready: Object.values(assets).some(Boolean),
+});
+
 export const createProject = (index: number, payload?: Partial<SongCreationPayload>): Project => {
   const hasLyrics = Boolean(payload?.lyrics?.trim());
+  const initialHistory = createHistoryEvent(hasLyrics ? 'Song created from pasted lyrics and routed to Producer Mode.' : 'Blank studio session created.', 'System');
   return {
     id: id('project'),
     trackName: payload?.trackName?.trim() || `Untitled Session ${index}`,
@@ -59,10 +130,19 @@ export const createProject = (index: number, payload?: Partial<SongCreationPaylo
     referenceTrack: '',
     masterPreset: 'Streaming Loud',
     arrangementSections: defaultArrangementSections(),
-    sessionHistory: [createHistoryEvent(hasLyrics ? 'Song created from pasted lyrics and routed to Producer Mode.' : 'Blank studio session created.', 'System')],
+    sessionHistory: [initialHistory],
     releaseChecklist: defaultReleaseChecklist({ lyrics: hasLyrics }),
+    recordingTakes: [],
+    activeTakeId: undefined,
+    approvals: defaultApprovalGates(initialHistory.timestamp),
+    versionHistory: [
+      createVersionRecord(hasLyrics ? 'V0 lyric brief' : 'V0 blank session', 'demo', 'System', hasLyrics ? 'Initial lyrics-to-song brief created.' : 'Blank studio session opened.', 0),
+    ],
+    exportPackages: [],
   };
 };
+
+const seedTime = 'May 01, 21:12';
 
 export const seedProjects: Project[] = [
   {
@@ -90,6 +170,21 @@ export const seedProjects: Project[] = [
       createHistoryEvent('Session sent to Engineer Mode for visual mixing.', 'Producer'),
     ],
     releaseChecklist: defaultReleaseChecklist({ lyrics: true, stems: true, mix: false }),
+    recordingTakes: [
+      { id: id('take'), name: 'Hook Take 1', section: 'Hook', createdAt: 'May 01, 20:48', durationLabel: '00:34', rating: 4, selected: true, note: 'Strong emotion, keep as comp candidate.' },
+    ],
+    activeTakeId: undefined,
+    approvals: [
+      { id: 'artist', label: 'Artist approval', owner: 'Artist', status: 'approved', note: 'Lyrics and vocal direction approved.', updatedAt: seedTime },
+      { id: 'producer', label: 'Producer approval', owner: 'Producer', status: 'approved', note: 'Beat and arrangement approved.', updatedAt: seedTime },
+      { id: 'engineer', label: 'Engineer approval', owner: 'Engineer', status: 'pending', note: 'Mix approval pending.', updatedAt: seedTime },
+      { id: 'final', label: 'Final master approval', owner: 'System', status: 'pending', note: 'Final release approval pending.', updatedAt: seedTime },
+    ],
+    versionHistory: [
+      createVersionRecord('Mix v1', 'mix', 'Engineer', 'Initial spatial mix prepared from producer handoff.', 0),
+      createVersionRecord('Beat foundation v1', 'beat', 'Producer', 'Lagos Bounce beat direction selected.', 0, true),
+    ],
+    exportPackages: [],
   },
   {
     id: id('project'),
@@ -112,6 +207,10 @@ export const seedProjects: Project[] = [
     arrangementSections: defaultArrangementSections(),
     sessionHistory: [createHistoryEvent('R&B lyrics drafted and assigned to producer.', 'Artist')],
     releaseChecklist: defaultReleaseChecklist({ lyrics: true }),
+    recordingTakes: [],
+    approvals: defaultApprovalGates('Apr 28, 19:44'),
+    versionHistory: [createVersionRecord('Lyric draft v1', 'demo', 'Artist', 'Initial lyric draft ready for production.', 0)],
+    exportPackages: [],
   },
   {
     id: id('project'),
@@ -137,6 +236,22 @@ export const seedProjects: Project[] = [
       createHistoryEvent('Release package prepared.', 'System'),
     ],
     releaseChecklist: defaultReleaseChecklist({ lyrics: true, stems: true, mix: true, master: true, artwork: true, metadata: true }),
+    recordingTakes: [
+      { id: id('take'), name: 'Final vocal comp', section: 'Full song', createdAt: 'Apr 10, 18:22', durationLabel: '02:48', rating: 5, selected: true, note: 'Approved lead vocal comp.' },
+    ],
+    approvals: [
+      { id: 'artist', label: 'Artist approval', owner: 'Artist', status: 'approved', note: 'Artist approved final direction.', updatedAt: 'Apr 12, 08:09' },
+      { id: 'producer', label: 'Producer approval', owner: 'Producer', status: 'approved', note: 'Producer approved release package.', updatedAt: 'Apr 12, 08:09' },
+      { id: 'engineer', label: 'Engineer approval', owner: 'Engineer', status: 'approved', note: 'Engineer approved final master.', updatedAt: 'Apr 12, 08:09' },
+      { id: 'final', label: 'Final master approval', owner: 'System', status: 'approved', note: 'Release package complete.', updatedAt: 'Apr 12, 08:09' },
+    ],
+    versionHistory: [
+      createVersionRecord('Master v1', 'master', 'Engineer', 'Final warm analog master exported.', 0, true),
+      createVersionRecord('Release package v1', 'release', 'System', 'Distribution-ready package assembled.', 0, true),
+    ],
+    exportPackages: [
+      createExportPackage('Midnight Pilot release package', defaultExportAssets({ instrumental: true, acapella: true }), 'Final package created for release review.'),
+    ],
   },
 ];
 

@@ -8,6 +8,7 @@ import ArtistTab from './ArtistTab';
 import ProducerTab from './ProducerTab';
 import EngineerTab from './EngineerTab';
 import StudioCycle from './StudioCycle';
+import StudioOpsV5 from './StudioOpsV5';
 
 interface WorkspaceProps {
   project: Project;
@@ -114,6 +115,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
         </header>
 
         <StudioCycle project={project} mode={mode} onModeChange={setMode} onProjectChange={patchProject} />
+        <StudioOpsV5 project={project} onModeChange={setMode} onProjectChange={patchProject} />
 
         {mode === 'artist' && <ArtistTab project={project} onProjectChange={patchProject} />}
         {mode === 'producer' && <ProducerTab project={project} onProjectChange={patchProject} onSendToEngineer={handleSendToEngineer} />}

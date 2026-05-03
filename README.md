@@ -1,49 +1,45 @@
-# AudioMagic.ai Frontend MVP v4
+# AudioMagic.ai MVP v5
 
-A premium dark-mode Vite + React + TypeScript MVP for an all-in-one music production platform that guides a complete studio session cycle.
+AudioMagic.ai is a browser-based studio workflow prototype built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, Web Audio API, and JSZip.
 
-## v4 Studio Cycle
+## v5 focus
 
-AudioMagic.ai v4 is organized around a complete song lifecycle:
+v5 extends the platform from a guided studio cycle into a fuller studio operating layer:
 
-`Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release Package`
-
-## Features
-
-- Studio Dashboard with clickable project stats and quick project filtering.
-- Lyrics to Song creator: paste lyrics, select genre, select beat pattern, and route directly to Producer Mode.
-- Unified Workspace with persistent Artist, Producer, and Engineer modes.
-- v4 Complete Studio Cycle panel:
-  - Lifecycle progress tracker.
-  - Artist / Producer / Engineer role lanes.
-  - BPM, key, mood, reference track, and mastering preset metadata.
-  - Arrangement builder with sections, bar counts, energy, and notes.
-  - Session history timeline.
-  - Stem manager and mix console controls.
-  - Release package checklist.
-- Artist Mode: smart lyrics notepad, simulated AI co-writer, MediaRecorder vocal recording, and voice cloning consent UI.
-- Producer Mode: beat library, browser-generated WAV beats, arrangement brief, stem upload, and handoff to Engineer Mode.
-- Engineer Mode: visual Sonic Stage, pan/gain/depth adjustment, A/B master compare, waveform feedback, and real JSZip export.
-- GitHub Actions workflow for production build validation.
+- v4 complete studio lifecycle retained: Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release
+- v5 Recording Booth controls: count-in, metronome toggle, section-based vocal takes
+- Take manager with best-take selection, ratings, and notes
+- Approval gates for Artist, Producer, Engineer, and Final Master
+- Version history for demo, beat, mix, master, and release snapshots
+- Release/export package builder for WAV master, MP3 preview, stems ZIP, instrumental, acapella, lyrics PDF, and release notes
+- Existing Producer Beat Library and Engineer Sonic Stage retained
 
 ## Run locally
 
-```bash
+```powershell
 npm install
 npm run dev
 ```
 
-## Production build
+Open the Vite URL shown in the terminal, usually:
 
-```bash
+```text
+http://localhost:5173
+```
+
+## Production preview
+
+```powershell
 npm run build
 npm run preview
 ```
 
-## Stack
+Open the preview URL shown by Vite, usually:
 
-React 18, TypeScript, Vite, Tailwind CSS, Framer Motion, lucide-react, JSZip, Web Audio API.
+```text
+http://localhost:4173
+```
 
 ## Notes
 
-The AI co-writer, producer intelligence, mastering logic, and beat generation are frontend simulations. They are designed as UI/API integration points for a backend AI/audio pipeline later.
+This is still a frontend MVP. Audio generation, vocal recording, project state, and exports are browser-side prototypes. A production platform would add authentication, database persistence, cloud audio storage, real AI/music APIs, server-side audio rendering, and billing.
