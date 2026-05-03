@@ -1,6 +1,7 @@
 export type ProjectStatus = 'Writing' | 'Recording' | 'Producing' | 'Mixing' | 'Released';
 export type WorkspaceMode = 'artist' | 'producer' | 'engineer';
 export type StemKind = 'vocal' | 'beat' | 'stem' | 'master';
+export type StemSplitRole = 'vocals' | 'drums' | 'bass' | 'melody' | 'other';
 export type LifecycleStageId = 'idea' | 'lyrics' | 'demo' | 'beat' | 'arrangement' | 'recording' | 'mix' | 'master' | 'release';
 export type SessionLaneId = 'artist' | 'producer' | 'engineer';
 export type ApprovalStatus = 'pending' | 'approved' | 'changes_requested';
@@ -22,6 +23,14 @@ export interface Stem {
   gain: number;
   position: StemPosition;
   createdAt: string;
+  muted?: boolean;
+  solo?: boolean;
+  fadeIn?: number;
+  fadeOut?: number;
+  trimStart?: number;
+  trimEnd?: number;
+  sourceTool?: string;
+  splitRole?: StemSplitRole;
 }
 
 export interface ArrangementSection {
