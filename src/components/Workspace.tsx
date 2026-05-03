@@ -18,6 +18,7 @@ import type { Project, WorkspaceMode } from '../types';
 import { analyseLyrics, getNextAction, getReadiness } from '../studioInsights';
 import { nowLabel } from '../utils';
 import ArtistTab from './ArtistTab';
+import CreatorTools from './CreatorTools';
 import EngineerTab from './EngineerTab';
 import ProducerTab from './ProducerTab';
 import SongCopilotPanel from './SongCopilotPanel';
@@ -122,7 +123,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
               </button>
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-magenta/20 bg-magenta/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-magenta">
-                  <Sparkles className="h-3.5 w-3.5" /> AudioMagic v7 · AI Song Copilot UX
+                  <Sparkles className="h-3.5 w-3.5" /> AudioMagic v8 · Creator Tools & Stem Intelligence
                 </div>
                 <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">{project.trackName}</h1>
                 <p className="mt-1 text-sm text-white/45">
@@ -249,6 +250,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
         </header>
 
         <SongCopilotPanel project={project} compact />
+        <CreatorTools project={project} onProjectChange={patchProject} />
 
         <StudioCycle project={project} mode={mode} onModeChange={handleModeChange} onProjectChange={patchProject} />
         <StudioOpsV5 project={project} onModeChange={handleModeChange} onProjectChange={patchProject} />
