@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { AudioLines, Bot, Copy, FileAudio, Mic, MicOff, Sparkles, Wand2 } from 'lucide-react';
+import { AudioLines, Bot, CheckCircle2, Copy, FileAudio, Loader2, Mic, MicOff, Music2, Sparkles, Wand2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Project, Stem } from '../types';
-import { createHistoryEvent, createRecordingTake, id, nowLabel } from '../utils';
+import { createHistoryEvent, createRecordingTake, createVersionRecord, id, nowLabel } from '../utils';
 
 interface ArtistTabProps {
   project: Project;
@@ -27,10 +27,107 @@ const buildSuggestions = (lyrics: string) => {
   ];
 };
 
+const writeString = (view: DataView, offset: number, text: string) => {
+  for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index));
+};
+
+const createDemoWavUrl = (frequency = 220, durationSeconds = 3) => {
+  const sampleRate = 44100;
+  const samples = sampleRate * durationSeconds;
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples * 2, true);
+
+  for (let index = 0; index < samples; index += 1) {
+    const envelope = Math.max(0.08, 1 - index / samples);
+    const tone = Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 0.18 * envelope;
+    view.setInt16(44 + index * 2, tone * 32767, true);
+  }
+
+  return URL.createObjectURL(new Blob([view], { type: 'audio/wav' }));
+};
+
+const buildGeneratedSongStems = (trackName: string, audioUrl: string): Stem[] => [
+  {
+    id: id('stem'),
+    name: `${trackName} · Cloned Voice Lead`,
+    kind: 'vocal',
+    url: audioUrl,
+    fileName: 'cloned-voice-lead.wav',
+    pan: 0,
+    gain: 0.92,
+    muted: false,
+    solo: false,
+    sourceTool: 'Voice Clone Song Builder',
+    splitRole: 'vocals',
+    position: { x: 250, y: 110 },
+    createdAt: nowLabel(),
+  },
+  {
+    id: id('stem'),
+    name: `${trackName} · AI Beat Bed`,
+    kind: 'beat',
+    url: audioUrl,
+    fileName: 'ai-beat-bed.wav',
+    pan: -0.08,
+    gain: 0.78,
+    muted: false,
+    solo: false,
+    sourceTool: 'Voice Clone Song Builder',
+    splitRole: 'drums',
+    position: { x: 115, y: 230 },
+    createdAt: nowLabel(),
+  },
+  {
+    id: id('stem'),
+    name: `${trackName} · Instrumental Guide`,
+    kind: 'stem',
+    url: audioUrl,
+    fileName: 'instrumental-guide.wav',
+    pan: 0.16,
+    gain: 0.68,
+    muted: false,
+    solo: false,
+    sourceTool: 'Voice Clone Song Builder',
+    splitRole: 'melody',
+    position: { x: 395, y: 220 },
+    createdAt: nowLabel(),
+  },
+  {
+    id: id('stem'),
+    name: `${trackName} · Demo Master Preview`,
+    kind: 'master',
+    url: audioUrl,
+    fileName: 'demo-master-preview.wav',
+    pan: 0,
+    gain: 0.86,
+    muted: false,
+    solo: false,
+    sourceTool: 'Voice Clone Song Builder',
+    position: { x: 260, y: 310 },
+    createdAt: nowLabel(),
+  },
+];
+
 export default function ArtistTab({ project, onProjectChange }: ArtistTabProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [voiceCloneEnabled, setVoiceCloneEnabled] = useState(false);
+  const [isGeneratingSong, setIsGeneratingSong] = useState(false);
+  const [songBuilderMessage, setSongBuilderMessage] = useState<string | null>(null);
   const [countInEnabled, setCountInEnabled] = useState(true);
   const [metronomeEnabled, setMetronomeEnabled] = useState(true);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -74,6 +171,48 @@ export default function ArtistTab({ project, onProjectChange }: ArtistTabProps) 
 
   const requestSuggestions = () => {
     onProjectChange({ coWriterSuggestions: buildSuggestions(project.lyrics), status: 'Writing' });
+  };
+
+  const createSongFromClonedVoice = async () => {
+    if (!project.lyrics.trim()) {
+      setSongBuilderMessage('Add lyrics first, then generate the song draft.');
+      return;
+    }
+
+    setIsGeneratingSong(true);
+    setSongBuilderMessage('Building cloned-voice demo, beat bed, instrumental guide, and master preview…');
+    await new Promise((resolve) => window.setTimeout(resolve, 900));
+
+    const audioUrl = createDemoWavUrl(project.bpm && project.bpm > 110 ? 246 : 196, 4);
+    const generatedStems = buildGeneratedSongStems(project.trackName, audioUrl);
+    const take = createRecordingTake('Cloned Voice Full Song Draft', 'Full Song', generatedStems[0].id, 'Generated from cloned voice consent mode and current lyrics.');
+
+    onProjectChange({
+      stems: [...generatedStems, ...project.stems],
+      rawMasterUrl: project.rawMasterUrl ?? audioUrl,
+      aiMasterUrl: audioUrl,
+      selectedBeatName: project.selectedBeatName ?? 'AI Cloned Voice Demo Beat',
+      arrangement: project.arrangement ?? 'Intro · Verse 1 · Hook · Verse 2 · Bridge · Final Hook · Outro',
+      producerNotes: [
+        project.producerNotes,
+        'Cloned voice song draft generated from Artist Mode. Producer should refine beat, arrangement, and stem handoff before engineering.',
+      ].filter(Boolean).join('\n'),
+      status: 'Producing',
+      releaseChecklist: { ...(project.releaseChecklist ?? { lyrics: false, stems: false, mix: false, master: false, artwork: false, metadata: false }), lyrics: true, stems: true },
+      recordingTakes: [{ ...take, selected: true, rating: 4 }, ...(project.recordingTakes ?? [])],
+      activeTakeId: take.id,
+      sessionHistory: [
+        createHistoryEvent('Cloned voice full-song draft generated from lyrics.', 'System'),
+        ...(project.sessionHistory ?? []),
+      ].slice(0, 14),
+      versionHistory: [
+        createVersionRecord('Cloned voice song draft v1', 'demo', 'System', 'Generated visible song draft, four stems, vocal take, and demo master preview.', generatedStems.length),
+        ...(project.versionHistory ?? []),
+      ].slice(0, 12),
+    });
+
+    setSongBuilderMessage('Song draft created. Open Producer Lab or Engineer Mode to continue editing the generated stems.');
+    setIsGeneratingSong(false);
   };
 
   const startRecordingNow = async () => {
@@ -323,6 +462,36 @@ export default function ArtistTab({ project, onProjectChange }: ArtistTabProps) 
               “I confirm this is my voice. I grant AudioMagic.ai permission to create a private voice model for this project only. I can revoke this consent at any time.”
             </div>
           )}
+
+          <div className="mt-4 rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+            <div className="flex items-start gap-3">
+              {songBuilderMessage?.includes('created') ? <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-cyan" /> : <Music2 className="mt-1 h-5 w-5 shrink-0 text-magenta" />}
+              <div>
+                <p className="font-semibold">Create song from cloned voice + lyrics</p>
+                <p className="mt-1 text-sm leading-6 text-white/45">
+                  This now generates visible demo stems, a selected full-song take, a demo master preview, and routes the project into Producing.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={createSongFromClonedVoice}
+              disabled={!voiceCloneEnabled || !project.lyrics.trim() || isGeneratingSong}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan/30 bg-cyan px-5 py-3 font-semibold text-black shadow-cyan transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {isGeneratingSong ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {isGeneratingSong ? 'Creating song draft…' : 'Create song draft'}
+            </button>
+
+            {songBuilderMessage && (
+              <p className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${songBuilderMessage.includes('created') ? 'border-cyan/20 bg-cyan/10 text-cyan' : 'border-white/5 bg-black/25 text-white/55'}`}>
+                {songBuilderMessage}
+              </p>
+            )}
+
+            {!voiceCloneEnabled && <p className="mt-3 text-xs text-white/35">Enable Voice Cloning Consent Mode to unlock this action.</p>}
+          </div>
         </div>
       </section>
     </div>
