@@ -1,18 +1,29 @@
-# AudioMagic.ai MVP v5
+# AudioMagic.ai MVP v6
 
 AudioMagic.ai is a browser-based studio workflow prototype built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, Web Audio API, and JSZip.
 
-## v5 focus
+## v6 focus: better UX layout
 
-v5 extends the platform from a guided studio cycle into a fuller studio operating layer:
+v6 keeps the v5 studio operations layer and reorganizes the website into a clearer product experience:
 
-- v4 complete studio lifecycle retained: Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release
-- v5 Recording Booth controls: count-in, metronome toggle, section-based vocal takes
+- New Studio OS style dashboard with a persistent left navigation rail
+- Cleaner hero section with stronger value proposition
+- Primary quick-start flow: paste lyrics, choose genre/beat, send to Producer
+- Clear Continue Session card for the latest project
+- Studio pipeline: Write → Produce → Record → Engineer → Release
+- Project command center with cleaner rows, progress, stems, takes, and next action
+- Needs Attention sidebar for active sessions
+- Less visual clutter and better hierarchy across the landing dashboard
+
+## Retained from v5
+
+- Complete studio lifecycle: Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release
+- Recording Booth controls: count-in, metronome toggle, section-based vocal takes
 - Take manager with best-take selection, ratings, and notes
 - Approval gates for Artist, Producer, Engineer, and Final Master
 - Version history for demo, beat, mix, master, and release snapshots
 - Release/export package builder for WAV master, MP3 preview, stems ZIP, instrumental, acapella, lyrics PDF, and release notes
-- Existing Producer Beat Library and Engineer Sonic Stage retained
+- Producer Beat Library and Engineer Sonic Stage
 
 ## Run locally
 
