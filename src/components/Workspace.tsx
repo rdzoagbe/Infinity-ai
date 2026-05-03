@@ -7,6 +7,7 @@ import { nowLabel } from '../utils';
 import ArtistTab from './ArtistTab';
 import ProducerTab from './ProducerTab';
 import EngineerTab from './EngineerTab';
+import StudioCycle from './StudioCycle';
 
 interface WorkspaceProps {
   project: Project;
@@ -111,6 +112,8 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
             </div>
           </div>
         </header>
+
+        <StudioCycle project={project} mode={mode} onModeChange={setMode} onProjectChange={patchProject} />
 
         {mode === 'artist' && <ArtistTab project={project} onProjectChange={patchProject} />}
         {mode === 'producer' && <ProducerTab project={project} onProjectChange={patchProject} onSendToEngineer={handleSendToEngineer} />}

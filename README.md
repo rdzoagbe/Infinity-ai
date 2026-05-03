@@ -1,18 +1,30 @@
-# AudioMagic.ai Frontend MVP v3
+# AudioMagic.ai Frontend MVP v4
 
-A premium dark-mode Vite + React + TypeScript MVP for a guided music-production workflow:
+A premium dark-mode Vite + React + TypeScript MVP for an all-in-one music production platform that guides a complete studio session cycle.
 
-**Lyrics → Producer → Engineer → Export**
+## v4 Studio Cycle
 
-## v3 Highlights
+AudioMagic.ai v4 is organized around a complete song lifecycle:
 
-- Clickable dashboard stat cards that filter projects by workflow state.
-- New **Lyrics to Song** dashboard section where lyrics can be pasted directly.
-- Genre and beat-pattern selection from the Producer Beat Library before creating a song.
-- Automatic routing from Dashboard to Producer Mode after creating a lyrics-based project.
-- Producer Mode now reads the lyrics, renders the selected beat as a browser-generated WAV, creates an arrangement brief, and includes **Send to Engineer**.
-- Engineer Mode includes a producer handoff summary, visual Sonic Stage, draggable stems, stereo pan/depth gain adjustment, A/B comparison, and real JSZip export.
-- GitHub Actions workflow included for build validation.
+`Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release Package`
+
+## Features
+
+- Studio Dashboard with clickable project stats and quick project filtering.
+- Lyrics to Song creator: paste lyrics, select genre, select beat pattern, and route directly to Producer Mode.
+- Unified Workspace with persistent Artist, Producer, and Engineer modes.
+- v4 Complete Studio Cycle panel:
+  - Lifecycle progress tracker.
+  - Artist / Producer / Engineer role lanes.
+  - BPM, key, mood, reference track, and mastering preset metadata.
+  - Arrangement builder with sections, bar counts, energy, and notes.
+  - Session history timeline.
+  - Stem manager and mix console controls.
+  - Release package checklist.
+- Artist Mode: smart lyrics notepad, simulated AI co-writer, MediaRecorder vocal recording, and voice cloning consent UI.
+- Producer Mode: beat library, browser-generated WAV beats, arrangement brief, stem upload, and handoff to Engineer Mode.
+- Engineer Mode: visual Sonic Stage, pan/gain/depth adjustment, A/B master compare, waveform feedback, and real JSZip export.
+- GitHub Actions workflow for production build validation.
 
 ## Run locally
 
@@ -21,10 +33,11 @@ npm install
 npm run dev
 ```
 
-## Build
+## Production build
 
 ```bash
 npm run build
+npm run preview
 ```
 
 ## Stack
@@ -33,4 +46,4 @@ React 18, TypeScript, Vite, Tailwind CSS, Framer Motion, lucide-react, JSZip, We
 
 ## Notes
 
-The AI co-writer, beat generation, AI mastering, and engineering features are frontend MVP simulations. The beat engine generates browser-rendered WAV files using the Web Audio API. Real AI generation, cloud storage, authentication, and payment features should be added through backend services in a later phase.
+The AI co-writer, producer intelligence, mastering logic, and beat generation are frontend simulations. They are designed as UI/API integration points for a backend AI/audio pipeline later.

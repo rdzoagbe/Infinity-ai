@@ -1,4 +1,4 @@
-import type { Project, ProjectStatus, SongCreationPayload, Stem } from './types';
+import type { ArrangementSection, Project, ProjectStatus, ReleaseChecklist, SessionHistoryEvent, SongCreationPayload, Stem } from './types';
 
 export const nowLabel = () =>
   new Intl.DateTimeFormat('en', {
@@ -10,22 +10,59 @@ export const nowLabel = () =>
 
 export const id = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
 
-export const createProject = (index: number, payload?: Partial<SongCreationPayload>): Project => ({
-  id: id('project'),
-  trackName: payload?.trackName?.trim() || `Untitled Session ${index}`,
-  status: payload?.lyrics ? 'Producing' : 'Writing',
-  lastEdited: nowLabel(),
-  lyrics: payload?.lyrics ?? '',
-  coWriterSuggestions: [],
-  prompt: payload?.prompt ?? '',
-  stems: [],
-  selectedGenreId: payload?.selectedGenreId,
-  selectedBeatName: payload?.selectedBeatName,
-  arrangement: payload?.lyrics
-    ? 'Suggested structure: Intro · Verse 1 · Hook · Verse 2 · Hook · Bridge · Final Hook'
-    : undefined,
-  producerNotes: payload?.lyrics ? 'Lyrics received from the dashboard. Select or render a beat, then send the session to Engineer Mode.' : undefined,
+export const defaultArrangementSections = (): ArrangementSection[] => [
+  { id: id('section'), name: 'Intro', bars: 4, energy: 'Low', note: 'Set the atmosphere and tease the hook motif.' },
+  { id: id('section'), name: 'Verse 1', bars: 16, energy: 'Medium', note: 'Keep lyrics forward with restrained drums.' },
+  { id: id('section'), name: 'Hook', bars: 8, energy: 'High', note: 'Open the beat, widen backing vocals, lift the bass.' },
+  { id: id('section'), name: 'Verse 2', bars: 16, energy: 'Medium', note: 'Add variation without crowding the vocal.' },
+  { id: id('section'), name: 'Final Hook', bars: 8, energy: 'Peak', note: 'Full production and strongest vocal stack.' },
+  { id: id('section'), name: 'Outro', bars: 4, energy: 'Low', note: 'Strip back and leave a clean ending.' },
+];
+
+export const defaultReleaseChecklist = (overrides?: Partial<ReleaseChecklist>): ReleaseChecklist => ({
+  lyrics: false,
+  stems: false,
+  mix: false,
+  master: false,
+  artwork: false,
+  metadata: false,
+  ...overrides,
 });
+
+export const createHistoryEvent = (message: string, actor: SessionHistoryEvent['actor'] = 'System'): SessionHistoryEvent => ({
+  id: id('event'),
+  timestamp: nowLabel(),
+  actor,
+  message,
+});
+
+export const createProject = (index: number, payload?: Partial<SongCreationPayload>): Project => {
+  const hasLyrics = Boolean(payload?.lyrics?.trim());
+  return {
+    id: id('project'),
+    trackName: payload?.trackName?.trim() || `Untitled Session ${index}`,
+    status: hasLyrics ? 'Producing' : 'Writing',
+    lastEdited: nowLabel(),
+    lyrics: payload?.lyrics ?? '',
+    coWriterSuggestions: [],
+    prompt: payload?.prompt ?? '',
+    stems: [],
+    selectedGenreId: payload?.selectedGenreId,
+    selectedBeatName: payload?.selectedBeatName,
+    arrangement: hasLyrics
+      ? 'Suggested structure: Intro · Verse 1 · Hook · Verse 2 · Hook · Bridge · Final Hook'
+      : undefined,
+    producerNotes: hasLyrics ? 'Lyrics received from the dashboard. Select or render a beat, then send the session to Engineer Mode.' : undefined,
+    bpm: 104,
+    songKey: 'F minor',
+    mood: hasLyrics ? 'Confident, emotional, radio-ready' : 'Unassigned',
+    referenceTrack: '',
+    masterPreset: 'Streaming Loud',
+    arrangementSections: defaultArrangementSections(),
+    sessionHistory: [createHistoryEvent(hasLyrics ? 'Song created from pasted lyrics and routed to Producer Mode.' : 'Blank studio session created.', 'System')],
+    releaseChecklist: defaultReleaseChecklist({ lyrics: hasLyrics }),
+  };
+};
 
 export const seedProjects: Project[] = [
   {
@@ -41,6 +78,18 @@ export const seedProjects: Project[] = [
     selectedBeatName: 'Lagos Bounce',
     arrangement: 'Intro · Verse · Hook · Verse · Hook · Outro',
     producerNotes: 'Ready for spatial placement. Beat direction: neon Afro-electronic bounce.',
+    bpm: 108,
+    songKey: 'D minor',
+    mood: 'Nocturnal, energetic, cinematic',
+    referenceTrack: 'Afrobeats club record with wide synth atmosphere',
+    masterPreset: 'Club Master',
+    arrangementSections: defaultArrangementSections(),
+    sessionHistory: [
+      createHistoryEvent('Lyrics and production brief imported.', 'Artist'),
+      createHistoryEvent('Beat direction selected: Lagos Bounce.', 'Producer'),
+      createHistoryEvent('Session sent to Engineer Mode for visual mixing.', 'Producer'),
+    ],
+    releaseChecklist: defaultReleaseChecklist({ lyrics: true, stems: true, mix: false }),
   },
   {
     id: id('project'),
@@ -55,6 +104,14 @@ export const seedProjects: Project[] = [
     selectedBeatName: 'Silky Groove',
     arrangement: 'Verse · Pre-hook · Hook · Verse · Hook',
     producerNotes: 'Needs beat rendering and vocal capture before engineering.',
+    bpm: 86,
+    songKey: 'A-flat minor',
+    mood: 'Warm, intimate, late-night',
+    referenceTrack: 'Modern R&B with soft bass and intimate vocal chain',
+    masterPreset: 'Warm Analog',
+    arrangementSections: defaultArrangementSections(),
+    sessionHistory: [createHistoryEvent('R&B lyrics drafted and assigned to producer.', 'Artist')],
+    releaseChecklist: defaultReleaseChecklist({ lyrics: true }),
   },
   {
     id: id('project'),
@@ -69,6 +126,17 @@ export const seedProjects: Project[] = [
     selectedBeatName: 'Late Night',
     arrangement: 'Released master package.',
     producerNotes: 'Exported master is complete.',
+    bpm: 78,
+    songKey: 'F major',
+    mood: 'Calm, reflective, night drive',
+    referenceTrack: 'Lo-fi instrumental with tape hiss and soft low end',
+    masterPreset: 'Warm Analog',
+    arrangementSections: defaultArrangementSections(),
+    sessionHistory: [
+      createHistoryEvent('Final master exported.', 'Engineer'),
+      createHistoryEvent('Release package prepared.', 'System'),
+    ],
+    releaseChecklist: defaultReleaseChecklist({ lyrics: true, stems: true, mix: true, master: true, artwork: true, metadata: true }),
   },
 ];
 
