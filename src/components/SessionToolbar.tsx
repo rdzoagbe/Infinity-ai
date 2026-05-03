@@ -1,5 +1,7 @@
 import { Languages, LogOut, Moon, Sun } from 'lucide-react';
-import type { AppLanguage, AppTheme, UserSession } from './LandingPage';
+import type { AppLanguage, UserSession } from './LandingPage';
+
+export type AppTheme = 'dark' | 'light';
 
 interface SessionToolbarProps {
   session: UserSession | null;
