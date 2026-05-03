@@ -1,21 +1,30 @@
-# AudioMagic.ai MVP v6
+# AudioMagic.ai MVP v8
 
-AudioMagic.ai is a browser-based studio workflow prototype built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, Web Audio API, and JSZip.
+AudioMagic.ai is a browser-based AI music-studio workflow prototype built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, Web Audio API, and JSZip.
 
-## v6 focus: better UX layout
+## v8 focus: Creator Tools & Stem Intelligence
 
-v6 keeps the v5 studio operations layer and reorganizes the website into a clearer product experience:
+v8 adds DAW-inspired creator tools while keeping the guided AudioMagic flow: lyrics → copilot → producer → engineer → release.
 
-- New Studio OS style dashboard with a persistent left navigation rail
-- Cleaner hero section with stronger value proposition
-- Primary quick-start flow: paste lyrics, choose genre/beat, send to Producer
-- Clear “Continue Session” card for the latest project
-- Studio pipeline: Write → Produce → Record → Engineer → Release
-- Project command center with cleaner rows, progress, stems, takes, and next action
-- Needs Attention sidebar for active sessions
-- Less visual clutter and better hierarchy across the landing dashboard
+New v8 capabilities:
 
-## Retained from v5
+- AI MixSplit-style upload panel that creates editable separated stem lanes: vocals, drums, bass, melody, and other
+- Step Sequencer grid for kick, snare, hat, and bass pattern editing
+- Vocal Chain preset panel for Afrobeat lead, R&B smooth stack, drill vocal cut, and clean spoken voice
+- Sound Pack browser with starter kits for Afrobeat, R&B, Trap, and Lo-Fi
+- Stem waveform widgets with mute, solo, volume, pan, fade-in, and fade-out controls
+- Workspace-level Creator Tools panel mounted directly under the AI Song Copilot
+- Extended stem metadata for future real DSP integration: split role, source tool, mute/solo, fades, and trims
+
+## Retained from v7
+
+- AI Song Copilot with mood, key, BPM, density, structure, and next-action guidance
+- Song readiness score and missing-step checklist
+- Music-player-style session command center
+- Room-based navigation: Creative Room, Recording Booth, Producer Lab, Mix Room, Release Room
+- Clearer workspace hierarchy and guided next steps
+
+## Retained from v5/v6
 
 - Complete studio lifecycle: Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release
 - Recording Booth controls: count-in, metronome toggle, section-based vocal takes
@@ -53,4 +62,4 @@ http://localhost:4173
 
 ## Notes
 
-This is still a frontend MVP. Audio generation, vocal recording, project state, and exports are browser-side prototypes. A production platform would add authentication, database persistence, cloud audio storage, real AI/music APIs, server-side audio rendering, and billing.
+This remains a frontend MVP. AI MixSplit, vocal correction, sound packs, waveform editing, and audio-part widgets are implemented as product-ready UI/UX prototypes with project metadata updates. A production platform would connect these flows to authentication, database persistence, cloud audio storage, real stem-separation models, DSP/audio rendering services, sample-pack hosting, licensing, and billing.
