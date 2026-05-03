@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowLeft, Bot, Mic2, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bot, FileAudio, Mic2, PackageCheck, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Project, WorkspaceMode } from '../types';
@@ -15,10 +15,18 @@ interface WorkspaceProps {
   onProjectUpdate: (project: Project) => void;
 }
 
-const tabs: Array<{ id: WorkspaceMode; label: string; subtitle: string; icon: typeof Mic2 }> = [
-  { id: 'artist', label: 'Artist', subtitle: 'Lyrics & vocal', icon: Mic2 },
-  { id: 'producer', label: 'Producer', subtitle: 'Beat library', icon: Bot },
-  { id: 'engineer', label: 'Engineer', subtitle: 'Visual console', icon: SlidersHorizontal },
+const tabs: Array<{ id: WorkspaceMode; label: string; subtitle: string; icon: typeof Mic2; room: string }> = [
+  { id: 'artist', label: 'Creative Room', subtitle: 'Lyrics, demo vocals, takes', icon: Mic2, room: 'Write + Record' },
+  { id: 'producer', label: 'Producer Lab', subtitle: 'Beat library and arrangement', icon: Bot, room: 'Produce + Arrange' },
+  { id: 'engineer', label: 'Mix Room', subtitle: 'Sonic stage, master, export', icon: SlidersHorizontal, room: 'Mix + Release' },
+];
+
+const roomTimeline = [
+  { label: 'Creative Room', helper: 'Lyrics and emotional direction', icon: Mic2 },
+  { label: 'Recording Booth', helper: 'Takes, count-in, comping', icon: FileAudio },
+  { label: 'Producer Lab', helper: 'Beat, arrangement, stems', icon: Bot },
+  { label: 'Mix Room', helper: 'Pan, depth, master compare', icon: SlidersHorizontal },
+  { label: 'Release Room', helper: 'Approvals and package', icon: PackageCheck },
 ];
 
 const isWorkspaceMode = (value: string | null): value is WorkspaceMode => value === 'artist' || value === 'producer' || value === 'engineer';
@@ -44,7 +52,8 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
     setMode('engineer');
   };
 
-  const workflowProgress = mode === 'artist' ? 33 : mode === 'producer' ? 66 : 100;
+  const workflowProgress = mode === 'artist' ? 34 : mode === 'producer' ? 68 : 100;
+  const activeRoom = tabs.find((tab) => tab.id === mode) ?? tabs[0];
 
   return (
     <main className="min-h-screen bg-midnight px-4 py-5 text-white md:px-8">
@@ -62,11 +71,11 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
               </button>
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-magenta/20 bg-magenta/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-magenta">
-                  <Sparkles className="h-3.5 w-3.5" /> Guided Studio Workflow
+                  <Sparkles className="h-3.5 w-3.5" /> AudioMagic Studio Rooms
                 </div>
                 <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">{project.trackName}</h1>
                 <p className="mt-1 text-sm text-white/45">
-                  {project.stems.length} stem{project.stems.length === 1 ? '' : 's'} · Status: {project.status} · {project.selectedBeatName ?? 'No beat chosen'}
+                  {activeRoom.room} · {project.stems.length} stem{project.stems.length === 1 ? '' : 's'} · Status: {project.status} · {project.selectedBeatName ?? 'No beat chosen'}
                 </p>
               </div>
             </div>
@@ -98,11 +107,24 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
             </nav>
           </div>
 
-          <div className="mt-5 rounded-2xl border border-white/5 bg-black/20 p-3">
+          <div className="mt-5 grid gap-3 rounded-[1.5rem] border border-white/5 bg-black/20 p-3 md:grid-cols-5">
+            {roomTimeline.map((room, index) => {
+              const activeIndex = mode === 'artist' ? 0 : mode === 'producer' ? 2 : 3;
+              const active = index === activeIndex || (mode === 'artist' && index === 1) || (mode === 'engineer' && index === 4);
+              return (
+                <div key={room.label} className={`rounded-2xl border p-3 transition ${active ? 'border-cyan/30 bg-cyan/10' : 'border-white/5 bg-white/[0.03]'}`}>
+                  <div className="flex items-center gap-2 text-sm font-semibold"><room.icon className={active ? 'h-4 w-4 text-cyan' : 'h-4 w-4 text-white/35'} /> {room.label}</div>
+                  <p className="mt-1 text-xs leading-5 text-white/40">{room.helper}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-white/5 bg-black/20 p-3">
             <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/35">
-              <span>Lyrics</span>
+              <span>Creative</span>
               <span>Producer</span>
-              <span>Engineer</span>
+              <span>Mix + Release</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-white/10">
               <motion.span
