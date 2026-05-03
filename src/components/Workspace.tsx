@@ -28,6 +28,7 @@ import EngineerTab from './EngineerTab';
 import FullSongBuilder from './FullSongBuilder';
 import ProducerTab from './ProducerTab';
 import SongCopilotPanel from './SongCopilotPanel';
+import StudioCoreV12 from './StudioCoreV12';
 import StudioCycle from './StudioCycle';
 import StudioDawV11 from './StudioDawV11';
 import StudioOpsV5 from './StudioOpsV5';
@@ -38,7 +39,7 @@ interface WorkspaceProps {
 }
 
 type RoomId = 'creative' | 'recording' | 'producer' | 'mix' | 'release';
-type WorkspaceView = 'song' | 'daw' | 'room' | 'copilot' | 'creator' | 'cycle' | 'ops';
+type WorkspaceView = 'core' | 'song' | 'daw' | 'room' | 'copilot' | 'creator' | 'cycle' | 'ops';
 
 const tabs: Array<{ id: WorkspaceMode; label: string; subtitle: string; icon: typeof Mic2; room: string }> = [
   { id: 'artist', label: 'Artist Room', subtitle: 'Lyrics, clone voice, song draft', icon: Mic2, room: 'Write + Voice' },
@@ -65,6 +66,7 @@ const transportButtons = [
 ] as const;
 
 const workspaceViews: Array<{ id: WorkspaceView; label: string; helper: string; icon: typeof LayoutDashboard }> = [
+  { id: 'core', label: 'v12 Core', helper: 'Artist, producer, engineer flow', icon: LayoutDashboard },
   { id: 'song', label: 'Create Song', helper: 'Lyrics to full studio draft', icon: Music2 },
   { id: 'daw', label: 'v11 DAW', helper: 'Timeline, beat, mixer, master', icon: LayoutDashboard },
   { id: 'room', label: 'Studio Rooms', helper: 'Artist, producer, engineer', icon: DoorOpen },
@@ -80,7 +82,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
   const initialMode: WorkspaceMode = isWorkspaceMode(modeParam) ? modeParam : 'artist';
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
   const [roomView, setRoomView] = useState<RoomId>(getActiveRoomId(initialMode));
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(project.stems.length > 0 || project.status !== 'Writing' ? 'daw' : 'song');
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('core');
   const [activeTransport, setActiveTransport] = useState<(typeof transportButtons)[number]['id']>('demo');
   const navigate = useNavigate();
 
@@ -153,10 +155,10 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
         <div>
           <p className="inline-flex items-center gap-2 rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-cyan"><Compass className="h-3.5 w-3.5" /> Studio cycle</p>
           <h2 className="mt-4 text-3xl font-semibold md:text-4xl">Your song must move visibly through each stage.</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/50">Start with Create Song. After generation, use v11 DAW for timeline, beat, chords, mixer, mastering, library, assistant, and release.</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/50">Start with v12 Core. After generation, use v11 DAW for timeline, beat, chords, mixer, mastering, library, assistant, and release.</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <button type="button" onClick={() => setWorkspaceView('song')} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan px-5 py-3 font-semibold text-black shadow-cyan"><Music2 className="h-4 w-4" /> Create / rebuild song</button>
+          <button type="button" onClick={() => setWorkspaceView('core')} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan px-5 py-3 font-semibold text-black shadow-cyan"><LayoutDashboard className="h-4 w-4" /> Open v12 Core</button>
           <button type="button" onClick={() => setWorkspaceView('daw')} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-magenta/30 bg-magenta/10 px-5 py-3 font-semibold text-magenta"><LayoutDashboard className="h-4 w-4" /> Open v11 DAW</button>
         </div>
       </div>
@@ -186,7 +188,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
             <div className="flex items-start gap-4">
               <button type="button" onClick={() => navigate('/dashboard')} className="rounded-2xl border border-white/5 bg-white/5 p-3 text-white/70 transition hover:border-cyan/30 hover:text-cyan" aria-label="Back to dashboard"><ArrowLeft className="h-5 w-5" /></button>
               <div>
-                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-magenta/20 bg-magenta/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-magenta"><Sparkles className="h-3.5 w-3.5" /> AudioMagic v11 · DAW studio cycle</div>
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-magenta/20 bg-magenta/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-magenta"><Sparkles className="h-3.5 w-3.5" /> AudioMagic v12 · Working studio core</div>
                 <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">{project.trackName}</h1>
                 <p className="mt-1 text-sm text-white/45">{activeRoom.room} · {project.stems.length} stem{project.stems.length === 1 ? '' : 's'} · status: {project.status} · {project.selectedBeatName ?? 'No beat chosen'}</p>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-white/55">{nextAction}</p>
@@ -230,6 +232,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
           </aside>
 
           <section className="min-w-0 space-y-5">
+            {workspaceView === 'core' && <StudioCoreV12 project={project} onProjectChange={patchProject} onOpenRoom={handleOpenRoomMode} />}
             {workspaceView === 'song' && <FullSongBuilder project={project} onProjectChange={patchProject} onOpenRoom={handleOpenRoomMode} />}
             {workspaceView === 'daw' && <StudioDawV11 project={project} onProjectChange={patchProject} onOpenRoom={handleOpenRoomMode} />}
             {workspaceView === 'room' && renderActiveRoom()}
