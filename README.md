@@ -9,7 +9,7 @@ v6 keeps the v5 studio operations layer and reorganizes the website into a clear
 - New Studio OS style dashboard with a persistent left navigation rail
 - Cleaner hero section with stronger value proposition
 - Primary quick-start flow: paste lyrics, choose genre/beat, send to Producer
-- Clear Continue Session card for the latest project
+- Clear “Continue Session” card for the latest project
 - Studio pipeline: Write → Produce → Record → Engineer → Release
 - Project command center with cleaner rows, progress, stems, takes, and next action
 - Needs Attention sidebar for active sessions
