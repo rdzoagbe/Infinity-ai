@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Mic2,
+  Music2,
   PackageCheck,
   Play,
   Radio,
@@ -24,6 +25,7 @@ import { nowLabel } from '../utils';
 import ArtistTab from './ArtistTab';
 import CreatorTools from './CreatorTools';
 import EngineerTab from './EngineerTab';
+import FullSongBuilder from './FullSongBuilder';
 import ProducerTab from './ProducerTab';
 import SongCopilotPanel from './SongCopilotPanel';
 import StudioCycle from './StudioCycle';
@@ -35,7 +37,7 @@ interface WorkspaceProps {
 }
 
 type RoomId = 'creative' | 'recording' | 'producer' | 'mix' | 'release';
-type WorkspaceView = 'start' | 'room' | 'copilot' | 'creator' | 'cycle' | 'ops';
+type WorkspaceView = 'start' | 'song' | 'room' | 'copilot' | 'creator' | 'cycle' | 'ops';
 
 const tabs: Array<{ id: WorkspaceMode; label: string; subtitle: string; icon: typeof Mic2; room: string }> = [
   { id: 'artist', label: 'Creative Room', subtitle: 'Lyrics, demo vocals, takes', icon: Mic2, room: 'Write + Record' },
@@ -68,6 +70,7 @@ const transportButtons = [
 
 const workspaceViews: Array<{ id: WorkspaceView; label: string; helper: string; icon: typeof LayoutDashboard }> = [
   { id: 'start', label: 'Start', helper: 'Simple launchpad', icon: LayoutDashboard },
+  { id: 'song', label: 'Full Song', helper: 'Lyrics to 2:50 / 3:00 song', icon: Music2 },
   { id: 'room', label: 'Room', helper: 'Current creative room', icon: DoorOpen },
   { id: 'copilot', label: 'Copilot', helper: 'AI song guidance', icon: Sparkles },
   { id: 'creator', label: 'Creator Tools', helper: 'MixSplit, sequencer, chains', icon: WandSparkles },
@@ -120,13 +123,25 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
     setRoomView('mix');
   };
 
-  const workflowProgress = mode === 'artist' ? 34 : mode === 'producer' ? 68 : 100;
+  const handleOpenRoomMode = (targetMode: WorkspaceMode) => {
+    setMode(targetMode);
+    setRoomView(getActiveRoomId(targetMode));
+    setWorkspaceView('room');
+  };
+
   const activeRoom = tabs.find((tab) => tab.id === mode) ?? tabs[0];
   const readiness = useMemo(() => getReadiness(project), [project]);
   const copilot = useMemo(() => analyseLyrics(project.lyrics, project.selectedGenreId), [project.lyrics, project.selectedGenreId]);
   const nextAction = useMemo(() => getNextAction(project), [project]);
 
   const startCards = [
+    {
+      title: 'Generate full song',
+      helper: 'Paste lyrics and create a 2:50 or 3:00 song blueprint with structure, bars, and producer handoff.',
+      icon: Music2,
+      action: () => setWorkspaceView('song'),
+      cta: 'Open Full Song Builder',
+    },
     {
       title: 'Start writing',
       helper: 'Open the Creative Room and draft lyrics or a song idea first.',
@@ -147,13 +162,6 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
       icon: Bot,
       action: () => handleRoomClick('producer', 'producer'),
       cta: 'Open Producer Lab',
-    },
-    {
-      title: 'Review the workflow',
-      helper: 'See the lifecycle without showing every operational panel at once.',
-      icon: Route,
-      action: () => setWorkspaceView('cycle'),
-      cta: 'View Song Cycle',
     },
   ];
 
@@ -202,7 +210,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
           </p>
           <h2 className="mt-4 text-3xl font-semibold md:text-4xl">Choose one starting point.</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
-            The full studio is still here, but it is now split into focused views. Start with writing, upload audio for MixSplit, build a beat, or inspect the song cycle only when needed.
+            Start with the Full Song Builder to turn lyrics into a complete 2:50 or 3:00 song plan, then move to Producer, Recording, Mix, and Release.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-2">
@@ -226,7 +234,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-magenta">Session snapshot</p>
-              <h3 className="mt-2 text-xl font-semibold">Nothing loaded yet</h3>
+              <h3 className="mt-2 text-xl font-semibold">{project.lyrics.trim() ? 'Lyrics ready' : 'Nothing loaded yet'}</h3>
             </div>
             <div className="rounded-2xl border border-white/5 bg-white/[0.04] px-3 py-2 text-sm text-white/45">{readiness.score}% ready</div>
           </div>
@@ -286,7 +294,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
               </button>
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-magenta/20 bg-magenta/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-magenta">
-                  <Sparkles className="h-3.5 w-3.5" /> AudioMagic v9 · Focused Workspace Layout
+                  <Sparkles className="h-3.5 w-3.5" /> AudioMagic v10 · Full Song Builder
                 </div>
                 <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">{project.trackName}</h1>
                 <p className="mt-1 text-sm text-white/45">
@@ -361,6 +369,7 @@ export default function Workspace({ project, onProjectUpdate }: WorkspaceProps) 
 
           <section className="min-w-0 space-y-5">
             {workspaceView === 'start' && renderStartPanel()}
+            {workspaceView === 'song' && <FullSongBuilder project={project} onProjectChange={patchProject} onOpenRoom={handleOpenRoomMode} />}
             {workspaceView === 'room' && renderActiveRoom()}
             {workspaceView === 'copilot' && <SongCopilotPanel project={project} compact />}
             {workspaceView === 'creator' && <CreatorTools project={project} onProjectChange={patchProject} />}
