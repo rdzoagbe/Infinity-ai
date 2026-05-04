@@ -17,6 +17,74 @@ const toastStyle = {
   fontWeight: 700,
 };
 
+const responsiveScrollCss = `
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: auto !important;
+  }
+
+  body {
+    position: static !important;
+  }
+
+  #root > * {
+    min-height: 100vh !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  main,
+  section,
+  article,
+  aside,
+  nav,
+  header,
+  footer {
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  textarea,
+  input,
+  select {
+    max-width: 100% !important;
+  }
+
+  @media (max-width: 1360px), (max-height: 820px) {
+    main,
+    section,
+    article,
+    aside,
+    nav,
+    header,
+    footer,
+    #root > div,
+    #root > div > div {
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+
+    aside {
+      position: static !important;
+      top: auto !important;
+      min-height: auto !important;
+    }
+  }
+
+  @media (max-height: 760px) {
+    * {
+      scroll-margin-top: 16px;
+    }
+  }
+`;
+
 function downloadJson(fileName, payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -46,6 +114,18 @@ export default function AudioMagicActionable() {
   const [toast, setToast] = useState('');
 
   useEffect(() => {
+    let styleTag = document.getElementById('audiomagic-responsive-scroll-fix');
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = 'audiomagic-responsive-scroll-fix';
+      styleTag.textContent = responsiveScrollCss;
+      document.head.appendChild(styleTag);
+    }
+
+    document.documentElement.style.overflowY = 'auto';
+    document.body.style.overflowY = 'auto';
+    document.body.style.height = 'auto';
+
     const onClick = async (event) => {
       const button = event.target.closest?.('button');
       if (!button) return;
@@ -66,7 +146,7 @@ export default function AudioMagicActionable() {
           label,
           message,
           project: 'Neon Heartbeat — Demo Session',
-          generatedBy: 'AudioMagic.ai v15.1 actionability layer',
+          generatedBy: 'AudioMagic.ai v15.2 scroll and actionability layer',
           timestamp: new Date().toISOString(),
         });
       }
