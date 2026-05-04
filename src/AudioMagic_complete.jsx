@@ -260,10 +260,10 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 24, alignItems: 'center' }}>
-          <div style={{ padding: '36px 8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(460px, 0.95fr)', gap: 32, alignItems: 'center' }}>
+          <div style={{ padding: '28px 8px', maxWidth: 620 }}>
             <Pill>Artist · Producer · Engineer</Pill>
-            <h1 style={{ fontSize: 'clamp(42px, 7vw, 74px)', lineHeight: 1.04, margin: '22px 0 16px' }}>
+            <h1 style={{ fontSize: 'clamp(40px, 6vw, 68px)', lineHeight: 1.02, letterSpacing: '-0.03em', margin: '22px 0 18px', textWrap: 'balance' }}>
               A clearer studio workflow from <span style={{ color: theme.cyan }}>idea</span> to <span style={{ color: theme.magenta }}>release</span>.
             </h1>
             <p style={{ color: theme.muted, fontSize: 18, lineHeight: 1.7, maxWidth: 740 }}>
@@ -273,7 +273,7 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
               <Button onClick={onStart} icon={Sparkles}>Open demo workspace</Button>
               <Button variant="secondary" onClick={onLogin} icon={Lock}>Private login</Button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 14, marginTop: 26 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(160px,1fr))', gap: 14, marginTop: 26 }}>
               {[
                 ['Guided workflow', 'Overview → Create → Produce → Mix → Master → Deliver'],
                 ['Better navigation', 'Global sidebar + project tabs + right utility rail'],
@@ -286,8 +286,8 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
               ))}
             </div>
           </div>
-          <Card title="v14 Interface Preview" subtitle="Redesigned shell and navigation">
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14 }}>
+          <Card title="v14 Interface Preview" subtitle="Cleaner spacing, clearer hierarchy, and more readable navigation.">
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, minHeight: 380 }}>
               <div style={{ ...glass, padding: 16, borderRadius: 20 }}>
                 {appShell.slice(0, 6).map((item, idx) => (
                   <div key={item.id} style={{ ...listItem, marginBottom: 10, border: idx === 2 ? `1px solid ${theme.cyan}55` : `1px solid ${theme.border}`, background: idx === 2 ? `${theme.cyan}12` : 'rgba(255,255,255,0.03)' }}>
@@ -295,23 +295,32 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
                   </div>
                 ))}
               </div>
-              <div style={{ ...glass, padding: 18, borderRadius: 20 }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              <div style={{ ...glass, padding: 20, borderRadius: 20 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
                   {studioSections.map((tab, idx) => (
                     <div key={tab.id} style={{ padding: '10px 14px', borderRadius: 14, background: idx === 0 ? `${theme.magenta}12` : 'rgba(255,255,255,0.03)', border: idx === 0 ? `1px solid ${theme.magenta}55` : `1px solid ${theme.border}`, color: idx === 0 ? theme.magenta : theme.muted }}>{tab.label}</div>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 14 }}>
-                  <div style={{ ...glass, padding: 18, borderRadius: 18 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Project Overview</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.95fr', gap: 16, alignItems: 'stretch' }}>
+                  <div style={{ ...glass, padding: 20, borderRadius: 18 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 18 }}>Project Overview</div>
                     <Progress value={72} />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10, marginTop: 14 }}>
-                      {['Lyrics ready', 'Beat selected', 'Mix pending'].map((x) => <div key={x} style={{ ...listItem, justifyContent: 'center', fontSize: 13 }}>{x}</div>)}
+                    <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+                      {[
+                        ['Lyrics', 'Ready for song generation'],
+                        ['Beat', 'Selected and routed to produce'],
+                        ['Mix', 'Pending final engineer pass'],
+                      ].map(([label, helper]) => (
+                        <div key={label} style={{ ...listItem, alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
+                          <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.5 }}>{helper}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div style={{ ...glass, padding: 18, borderRadius: 18 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 12 }}>Live waveform</div>
-                    <Wave />
+                  <div style={{ ...glass, padding: 20, borderRadius: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 18 }}>Live waveform</div>
+                    <div style={{ marginTop: 8 }}><Wave /></div>
                   </div>
                 </div>
               </div>
