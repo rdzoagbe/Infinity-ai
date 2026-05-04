@@ -16,24 +16,29 @@
       }
 
       html {
+        height: auto !important;
         min-height: 100%;
         background: #101116;
         overflow-x: hidden !important;
-        overflow-y: auto !important;
+        overflow-y: scroll !important;
         scroll-behavior: smooth;
       }
 
       body {
+        height: auto !important;
         min-height: 100%;
         margin: 0;
         background: #101116;
         overflow-x: hidden !important;
-        overflow-y: auto !important;
+        overflow-y: visible !important;
         font-family: 'Rajdhani', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       }
 
-      #root {
-        min-height: 100vh;
+      #root,
+      #root > * {
+        height: auto !important;
+        min-height: 100dvh;
+        max-height: none !important;
         background: #101116;
         overflow: visible !important;
       }
@@ -57,22 +62,55 @@
         touch-action: manipulation;
       }
 
-      @media (max-height: 760px) {
-        html,
-        body,
-        #root {
-          height: auto !important;
-          min-height: 100vh !important;
-          overflow-y: auto !important;
+      /* Half-screen laptop windows need the full document to scroll, not trapped panels. */
+      @media (max-height: 820px) {
+        html {
+          overflow-y: scroll !important;
         }
 
-        [style*='calc(100vh - 36px)'] {
-          min-height: auto !important;
+        body,
+        #root,
+        #root > * {
+          height: auto !important;
+          min-height: 100dvh !important;
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
+        aside,
+        main,
+        section,
+        article,
+        div {
           max-height: none !important;
         }
 
-        [style*='sticky'] {
+        aside {
           position: static !important;
+          overflow: visible !important;
+        }
+
+        [style*='100vh'],
+        [style*='100dvh'],
+        [style*='calc(100vh'],
+        [style*='calc(100dvh'] {
+          min-height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
+        [style*='position: sticky'],
+        [style*='position:sticky'] {
+          position: static !important;
+        }
+      }
+
+      @media (max-width: 1180px) {
+        aside {
+          position: static !important;
+          min-height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
         }
       }
     </style>
