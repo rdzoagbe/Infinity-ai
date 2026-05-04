@@ -1,7 +1,7 @@
 {
   "name": "audiomagic-ai",
-  "version": "15.0.0",
-  "description": "AudioMagic.ai \u2014 Unified Music Production Platform",
+  "version": "15.1.0",
+  "description": "AudioMagic.ai — Unified Music Production Platform",
   "private": true,
   "scripts": {
     "dev": "vite",
