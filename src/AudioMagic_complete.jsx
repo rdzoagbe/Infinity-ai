@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -240,15 +240,22 @@ function Button({ children, variant = 'primary', onClick, style = {}, icon: Icon
 }
 
 function Landing({ onStart, onLogin, language, setLanguage }) {
+  const width = useViewport();
+  const isTablet = width < 1100;
+  const isMobile = width < 768;
+  const heroCols = isTablet ? '1fr' : 'minmax(0, 1fr) minmax(420px, 0.95fr)';
+  const featureCols = isMobile ? '1fr' : width < 980 ? 'repeat(2, minmax(0,1fr))' : 'repeat(3, minmax(0,1fr))';
+  const previewCols = width < 640 ? '1fr' : '220px 1fr';
+  const previewInnerCols = width < 640 ? '1fr' : '1fr 0.95fr';
   return (
-    <div style={{ minHeight: '100vh', background: `radial-gradient(circle at top right, rgba(255,0,255,0.12), transparent 30%), radial-gradient(circle at top left, rgba(0,229,255,0.16), transparent 28%), ${theme.bg}`, color: theme.text, padding: 24 }}>
+    <div style={{ minHeight: '100vh', background: `radial-gradient(circle at top right, rgba(255,0,255,0.12), transparent 30%), radial-gradient(circle at top left, rgba(0,229,255,0.16), transparent 28%), ${theme.bg}`, color: theme.text, padding: isMobile ? 16 : 24, overflowX: 'hidden' }}>
       <div style={{ maxWidth: 1220, margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontWeight: 800, fontSize: 22 }}>
             <div style={{ width: 40, height: 40, borderRadius: 14, background: 'linear-gradient(135deg, #00E5FF, #FF00FF)', boxShadow: shadow.cyan }} />
             AudioMagic.ai
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ ...glass, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Globe size={16} color={theme.cyan} />
               <select value={language} onChange={(e) => setLanguage(e.target.value)} style={{ background: 'transparent', border: 'none', color: theme.text, outline: 'none' }}>
@@ -260,20 +267,20 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(460px, 0.95fr)', gap: 32, alignItems: 'center' }}>
-          <div style={{ padding: '28px 8px', maxWidth: 620 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: heroCols, gap: isTablet ? 24 : 32, alignItems: 'center' }}>
+          <div style={{ padding: isMobile ? '8px 0 4px' : '20px 8px', maxWidth: 680 }}>
             <Pill>Artist · Producer · Engineer</Pill>
-            <h1 style={{ fontSize: 'clamp(40px, 6vw, 68px)', lineHeight: 1.02, letterSpacing: '-0.03em', margin: '22px 0 18px', textWrap: 'balance' }}>
+            <h1 style={{ fontSize: isMobile ? 'clamp(38px, 12vw, 54px)' : 'clamp(44px, 7vw, 72px)', lineHeight: 1.02, letterSpacing: '-0.035em', margin: '22px 0 16px', textWrap: 'balance' }}>
               A clearer studio workflow from <span style={{ color: theme.cyan }}>idea</span> to <span style={{ color: theme.magenta }}>release</span>.
             </h1>
-            <p style={{ color: theme.muted, fontSize: 18, lineHeight: 1.7, maxWidth: 740 }}>
+            <p style={{ color: theme.muted, fontSize: isMobile ? 16 : 18, lineHeight: 1.7, maxWidth: 740 }}>
               AudioMagic v14 redesign introduces a modern SaaS shell with better navigation, cleaner project flow, and dedicated workspaces for Create, Produce, Mix, Master, and Deliver.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 26, flexWrap: 'wrap' }}>
               <Button onClick={onStart} icon={Sparkles}>Open demo workspace</Button>
               <Button variant="secondary" onClick={onLogin} icon={Lock}>Private login</Button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(160px,1fr))', gap: 14, marginTop: 26 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: featureCols, gap: 14, marginTop: 26 }}>
               {[
                 ['Guided workflow', 'Overview → Create → Produce → Mix → Master → Deliver'],
                 ['Better navigation', 'Global sidebar + project tabs + right utility rail'],
@@ -286,8 +293,8 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
               ))}
             </div>
           </div>
-          <Card title="v14 Interface Preview" subtitle="Cleaner spacing, clearer hierarchy, and more readable navigation.">
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 16, minHeight: 380 }}>
+          <Card title="v14 Interface Preview" subtitle="Redesigned shell and navigation">
+            <div style={{ display: 'grid', gridTemplateColumns: previewCols, gap: 16 }}>
               <div style={{ ...glass, padding: 16, borderRadius: 20 }}>
                 {appShell.slice(0, 6).map((item, idx) => (
                   <div key={item.id} style={{ ...listItem, marginBottom: 10, border: idx === 2 ? `1px solid ${theme.cyan}55` : `1px solid ${theme.border}`, background: idx === 2 ? `${theme.cyan}12` : 'rgba(255,255,255,0.03)' }}>
@@ -295,32 +302,23 @@ function Landing({ onStart, onLogin, language, setLanguage }) {
                   </div>
                 ))}
               </div>
-              <div style={{ ...glass, padding: 20, borderRadius: 20 }}>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
+              <div style={{ ...glass, padding: 18, borderRadius: 20 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
                   {studioSections.map((tab, idx) => (
                     <div key={tab.id} style={{ padding: '10px 14px', borderRadius: 14, background: idx === 0 ? `${theme.magenta}12` : 'rgba(255,255,255,0.03)', border: idx === 0 ? `1px solid ${theme.magenta}55` : `1px solid ${theme.border}`, color: idx === 0 ? theme.magenta : theme.muted }}>{tab.label}</div>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.95fr', gap: 16, alignItems: 'stretch' }}>
-                  <div style={{ ...glass, padding: 20, borderRadius: 18 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 18 }}>Project Overview</div>
+                <div style={{ display: 'grid', gridTemplateColumns: previewInnerCols, gap: 16, alignItems: 'stretch' }}>
+                  <div style={{ ...glass, padding: 18, borderRadius: 18 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Project Overview</div>
                     <Progress value={72} />
-                    <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-                      {[
-                        ['Lyrics', 'Ready for song generation'],
-                        ['Beat', 'Selected and routed to produce'],
-                        ['Mix', 'Pending final engineer pass'],
-                      ].map(([label, helper]) => (
-                        <div key={label} style={{ ...listItem, alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
-                          <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.5 }}>{helper}</div>
-                        </div>
-                      ))}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginTop: 14 }}>
+                      {[['Lyrics','Ready for generation'], ['Beat','Selected in library'], ['Mix','Pending engineer pass']].map(([label, helper]) => <div key={label} style={{ ...listItem, flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 4 }}><div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div><div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.5 }}>{helper}</div></div>)}
                     </div>
                   </div>
-                  <div style={{ ...glass, padding: 20, borderRadius: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 18 }}>Live waveform</div>
-                    <div style={{ marginTop: 8 }}><Wave /></div>
+                  <div style={{ ...glass, padding: 18, borderRadius: 18 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 12 }}>Live waveform</div>
+                    <Wave />
                   </div>
                 </div>
               </div>
@@ -354,6 +352,19 @@ function Login({ onEnter, onBack }) {
   );
 }
 
+
+function useViewport() {
+  const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return width;
+}
+
 const inputStyle = {
   width: '100%',
   background: 'rgba(255,255,255,0.03)',
@@ -365,9 +376,14 @@ const inputStyle = {
 };
 
 function AppShell({ onLogout, language, setLanguage }) {
+  const width = useViewport();
+  const isWide = width >= 1360;
+  const isDesktop = width >= 1180;
+  const isTablet = width >= 768 && width < 1180;
+  const isMobile = width < 768;
   const [nav, setNav] = useState('studio');
   const [section, setSection] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(width >= 1180);
   const [selectedProject, setSelectedProject] = useState(sampleProjects[0]);
   const [lyrics, setLyrics] = useState('Midnight city, neon rain\nI keep hearing your name...\n\n[Hook]\nPull me back into the light');
   const [idea, setIdea] = useState('Afro-R&B groove with warm synths and emotionally intimate vocals.');
@@ -376,6 +392,10 @@ function AppShell({ onLogout, language, setLanguage }) {
   const [stems, setStems] = useState(initialStems);
   const [selectedPreset, setSelectedPreset] = useState(masterPresets[0].id);
   const [deliverState, setDeliverState] = useState({ review: true, credits: false, artwork: false, stems: true, metadata: false, split: false });
+
+  useEffect(() => {
+    setSidebarOpen((prev) => (width < 1180 ? false : prev));
+  }, [width]);
 
   const completion = useMemo(() => {
     const checks = [lyrics.trim().length > 0, songReady, stems.length >= 3, selectedPreset, Object.values(deliverState).filter(Boolean).length >= 3];
@@ -405,7 +425,7 @@ function AppShell({ onLogout, language, setLanguage }) {
   const content = {
     dashboard: (
       <div style={{ display: 'grid', gap: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : width < 980 ? 'repeat(2, minmax(0,1fr))' : 'repeat(3, minmax(0,1fr))', gap: 16 }}>
           {[
             ['Active Projects', sampleProjects.length, theme.cyan],
             ['Songs in Mixing', 2, theme.magenta],
@@ -474,10 +494,10 @@ function AppShell({ onLogout, language, setLanguage }) {
           </div>
         </Card>
         {section === 'overview' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1.1fr 0.9fr' : '1fr', gap: 18 }}>
             <Card title="Project progress" subtitle="One glance tells the artist, producer, and engineer what happens next.">
               <Progress value={completion} />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12, marginTop: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : width < 980 ? 'repeat(2, minmax(0,1fr))' : 'repeat(3, minmax(0,1fr))', gap: 12, marginTop: 16 }}>
                 {[
                   ['Lyrics', lyrics.trim() ? 'Ready' : 'Missing'],
                   ['Song Draft', songReady ? 'Generated' : 'Pending'],
@@ -505,7 +525,7 @@ function AppShell({ onLogout, language, setLanguage }) {
           </div>
         )}
         {section === 'create' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1.1fr 0.9fr' : '1fr', gap: 18 }}>
             <Card title="Lyrics + Song Prompt" subtitle="A cleaner artist workspace: write, guide, and generate.">
               <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} style={{ ...inputStyle, minHeight: 220, resize: 'vertical' }} />
               <div style={{ height: 12 }} />
@@ -528,7 +548,7 @@ function AppShell({ onLogout, language, setLanguage }) {
           </div>
         )}
         {section === 'produce' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '0.9fr 1.1fr', gap: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '0.9fr 1.1fr' : '1fr', gap: 18 }}>
             <Card title="Sound Library" subtitle="Searchable sound choices now live in their own clean area.">
               <div style={{ ...listItem, marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: theme.muted }}><Search size={16} /> Search sounds</div>
@@ -569,7 +589,7 @@ function AppShell({ onLogout, language, setLanguage }) {
         )}
         {section === 'mix' && (
           <Card title="Mix Room" subtitle="Channel-strip layout with fewer distractions.">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : width < 980 ? 'repeat(2, minmax(0,1fr))' : width < 1280 ? 'repeat(3, minmax(0,1fr))' : 'repeat(4, minmax(0,1fr))', gap: 14 }}>
               {stems.map((stem) => (
                 <div key={stem.id} style={{ ...glass, padding: 16, borderRadius: 20 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -595,7 +615,7 @@ function AppShell({ onLogout, language, setLanguage }) {
           </Card>
         )}
         {section === 'master' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1fr 1fr' : '1fr', gap: 18 }}>
             <Card title="Master Assistant" subtitle="Mastering gets its own page in v14.">
               <div style={{ display: 'grid', gap: 12 }}>
                 {masterPresets.map((preset) => (
@@ -621,7 +641,7 @@ function AppShell({ onLogout, language, setLanguage }) {
         )}
         {section === 'deliver' && (
           <Card title="Deliver & Release" subtitle="Final approvals, exports, and release tasks.">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1fr 1fr' : '1fr', gap: 18 }}>
               <div style={{ display: 'grid', gap: 12 }}>
                 {Object.entries(deliverState).map(([key, value]) => (
                   <button key={key} onClick={() => setDeliverState((prev) => ({ ...prev, [key]: !prev[key] }))} style={{ ...listItem, cursor: 'pointer', color: theme.text, border: value ? `1px solid ${theme.cyan}55` : `1px solid ${theme.border}` }}>
@@ -685,9 +705,9 @@ function AppShell({ onLogout, language, setLanguage }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: theme.bg, color: theme.text, padding: 18 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `${sidebarOpen ? 260 : 88}px 1fr 310px`, gap: 18, maxWidth: 1600, margin: '0 auto' }}>
-        <aside style={{ ...glass, padding: 16, minHeight: 'calc(100vh - 36px)' }}>
+    <div style={{ minHeight: '100vh', background: theme.bg, color: theme.text, padding: isMobile ? 12 : 18, overflowX: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isWide ? `${sidebarOpen ? 260 : 88}px 1fr 310px` : isDesktop ? `${sidebarOpen ? 240 : 88}px 1fr` : '1fr', gap: 18, maxWidth: 1600, margin: '0 auto', alignItems: 'start' }}>
+        <aside style={{ ...glass, padding: 16, minHeight: isDesktop ? 'calc(100vh - 36px)' : 'auto', position: isWide ? 'sticky' : 'static', top: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, overflow: 'hidden' }}>
               <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(135deg, #00E5FF, #FF00FF)' }} />
@@ -730,14 +750,14 @@ function AppShell({ onLogout, language, setLanguage }) {
           )}
         </aside>
 
-        <main style={{ display: 'grid', gap: 18 }}>
+        <main style={{ display: 'grid', gap: 18, minWidth: 0 }}>
           <div style={{ ...glass, padding: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: 16, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 30, fontWeight: 800 }}>{nav === 'studio' ? selectedProject.name : appShell.find((n) => n.id === nav)?.label}</div>
+                <div style={{ fontSize: isMobile ? 24 : 30, fontWeight: 800, lineHeight: 1.15 }}>{nav === 'studio' ? selectedProject.name : appShell.find((n) => n.id === nav)?.label}</div>
                 <div style={{ color: theme.muted, marginTop: 6 }}>A more structured workflow with clearer navigation and context.</div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
                 <div style={{ ...listItem, minWidth: 190 }}><Search size={16} color={theme.cyan} /><span style={{ color: theme.muted }}>Search projects or sounds</span></div>
                 <div style={{ ...listItem }}><Globe size={16} color={theme.cyan} /><select value={language} onChange={(e) => setLanguage(e.target.value)} style={{ background: 'transparent', border: 'none', color: theme.text, outline: 'none' }}>{languages.map((lang) => <option key={lang.code} value={lang.code} style={{ color: '#000' }}>{lang.code}</option>)}</select></div>
                 <div style={{ ...listItem }}><Bell size={16} color={theme.muted} /></div>
@@ -748,7 +768,7 @@ function AppShell({ onLogout, language, setLanguage }) {
           {content[nav]}
         </main>
 
-        <aside style={{ ...glass, padding: 16, minHeight: 'calc(100vh - 36px)' }}>
+        {isWide && <aside style={{ ...glass, padding: 16, minHeight: 'calc(100vh - 36px)', position: 'sticky', top: 18 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>Session Rail</div>
           <div style={{ color: theme.muted, fontSize: 13, marginTop: 6 }}>Keep context and next actions visible.</div>
           <div style={{ marginTop: 16, display: 'grid', gap: 14 }}>
@@ -776,7 +796,26 @@ function AppShell({ onLogout, language, setLanguage }) {
               </div>
             </Card>
           </div>
-        </aside>
+        </aside>}
+
+        {!isWide && (
+          <section style={{ ...glass, padding: 16 }}>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>Session Rail</div>
+            <div style={{ color: theme.muted, fontSize: 13, marginTop: 6 }}>Key context and next actions, optimized for smaller screens.</div>
+            <div style={{ display: 'grid', gap: 14, marginTop: 16 }}>
+              <Card title="Project status" subtitle={`${selectedProject.status} · ${completion}% readiness`}>
+                <Progress value={completion} />
+                <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                  {['Continue writing lyrics', 'Move beat choices into Produce', 'Finalize mix notes', 'Prepare delivery package'].map((task) => (
+                    <div key={task} style={{ display: 'flex', alignItems: 'center', gap: 10, color: theme.muted, fontSize: 13 }}>
+                      <ListChecks size={15} color={theme.cyan} /> {task}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
