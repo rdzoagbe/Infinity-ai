@@ -64,6 +64,7 @@ const appShell = [
   { id: 'studio', label: 'Studio', icon: Disc3 },
   { id: 'library', label: 'Library', icon: Library },
   { id: 'collab', label: 'Collaboration', icon: MessageSquare },
+  { id: 'test', label: 'Test Mode', icon: Sparkles },
   { id: 'release', label: 'Release', icon: Upload },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -84,6 +85,7 @@ const languages = [
 ];
 
 const sampleProjects = [
+  { id: 'demo', name: 'Neon Heartbeat — Demo Session', status: 'Ready for musician test', bpm: 98, key: 'A Minor', updated: 'Just now' },
   { id: 'p1', name: 'Midnight Neon', status: 'Producing', bpm: 98, key: 'A Minor', updated: '5 min ago' },
   { id: 'p2', name: 'Golden Echo', status: 'Mixing', bpm: 124, key: 'F# Minor', updated: '1 hour ago' },
   { id: 'p3', name: 'City Mirage', status: 'Writing', bpm: 88, key: 'D Minor', updated: 'Yesterday' },
@@ -394,6 +396,11 @@ function AppShell({ onLogout, language, setLanguage }) {
   const [stems, setStems] = useState(initialStems);
   const [selectedPreset, setSelectedPreset] = useState(masterPresets[0].id);
   const [deliverState, setDeliverState] = useState({ review: true, credits: false, artwork: false, stems: true, metadata: false, split: false });
+  const [guidedSteps, setGuidedSteps] = useState({ listen: true, lyrics: true, draft: false, stem: false, mix: false, master: false, deliver: false, feedback: false });
+  const [feedback, setFeedback] = useState({ clarity: 4, realUse: 'Maybe', usefulPart: 'Production', confused: '', missing: '', pay: '', overall: 8 });
+  const [reviewNotes, setReviewNotes] = useState(['00:15 — Clean first impression, the workflow is easier to follow.', '01:20 — I want the song generation result to feel more immediate.', '03:40 — The Produce and Mix sections feel the most useful.']);
+  const [newReviewNote, setNewReviewNote] = useState('');
+  const [magicState, setMagicState] = useState('idle');
 
   useEffect(() => {
     setSidebarOpen((prev) => (width < 1180 ? false : prev));
@@ -411,7 +418,7 @@ function AppShell({ onLogout, language, setLanguage }) {
     steps.forEach((value, index) => {
       setTimeout(() => {
         setGenerationProgress(value);
-        if (value === 100) setSongReady(true);
+        if (value === 100) { setSongReady(true); setGuidedSteps((prev) => ({ ...prev, draft: true })); }
       }, 450 * (index + 1));
     });
   };
@@ -421,7 +428,73 @@ function AppShell({ onLogout, language, setLanguage }) {
       ...prev,
       { id: `s${prev.length + 1}`, name, pan: 0, volume: 68, color: prev.length % 2 ? theme.cyan : theme.magenta },
     ]);
+    setGuidedSteps((prev) => ({ ...prev, stem: true }));
     setSection('produce');
+  };
+
+  const testCompletion = useMemo(() => {
+    const values = Object.values(guidedSteps);
+    return Math.round((values.filter(Boolean).length / values.length) * 100);
+  }, [guidedSteps]);
+
+  const addReviewNote = () => {
+    if (!newReviewNote.trim()) return;
+    setReviewNotes((prev) => [...prev, newReviewNote.trim()]);
+    setNewReviewNote('');
+  };
+
+  const exportFeedback = () => {
+    const payload = {
+      project: selectedProject,
+      language,
+      guidedSteps,
+      feedback,
+      reviewNotes,
+      summary: {
+        completion: testCompletion,
+        songReady,
+        stems: stems.map(({ name, pan, volume }) => ({ name, pan, volume })),
+        preset: masterPresets.find((item) => item.id === selectedPreset)?.name,
+      },
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'audiomagic-musician-feedback.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    setGuidedSteps((prev) => ({ ...prev, feedback: true }));
+  };
+
+  const makeItMagic = () => {
+    setMagicState('running');
+    setGuidedSteps({ listen: true, lyrics: true, draft: true, stem: true, mix: true, master: true, deliver: true, feedback: guidedSteps.feedback });
+    if (!lyrics.includes('[Verse 2]')) {
+      setLyrics((prev) => `${prev}
+
+[Verse 2]
+We keep dancing through the pressure, turning scars into a flame.
+
+[Bridge]
+Hold on to the feeling, let the skyline sing our name.`);
+    }
+    setIdea('Afro-R&B / Pop crossover with warm synths, punchy percussion, earworm hook, emotional vocal lifts, and a 2:58 radio-ready arrangement.');
+    setSongReady(true);
+    setGenerationProgress(100);
+    setStems((prev) => {
+      const extras = [
+        { id: `s${prev.length + 1}`, name: 'Hook Doubles', pan: 12, volume: 64, color: '#8D7CFF' },
+        { id: `s${prev.length + 2}`, name: 'FX Riser', pan: -8, volume: 54, color: theme.warning },
+      ];
+      const names = new Set(prev.map((item) => item.name));
+      return [...prev, ...extras.filter((item) => !names.has(item.name))];
+    });
+    setSelectedPreset('vocal');
+    setDeliverState({ review: true, credits: true, artwork: true, stems: true, metadata: true, split: true });
+    setSection('deliver');
+    setTimeout(() => setMagicState('done'), 900);
   };
 
   const content = {
@@ -684,6 +757,144 @@ function AppShell({ onLogout, language, setLanguage }) {
         </div>
       </Card>
     ),
+    test: (
+      <div style={{ display: 'grid', gap: 18 }}>
+        <Card title="AudioMagic v15 — Musician Test Mode" subtitle="Guided evaluation flow for artists, producers, and engineers.">
+          <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1.1fr 0.9fr' : '1fr', gap: 18 }}>
+            <div>
+              <Pill>Recommended test time · 10–15 minutes</Pill>
+              <h2 style={{ fontSize: isMobile ? 28 : 34, margin: '16px 0 12px', lineHeight: 1.08 }}>Welcome to AudioMagic.ai</h2>
+              <div style={{ color: theme.muted, lineHeight: 1.7, fontSize: 15 }}>Create a song idea, shape the production, prepare the mix, and export a release package. Use the guided test to experience the complete song cycle before leaving structured feedback.</div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
+                <Button onClick={() => { setNav('test'); }} icon={Sparkles}>Start guided test</Button>
+                <Button variant="secondary" onClick={() => { setNav('projects'); setSelectedProject(sampleProjects[0]); }} icon={FolderKanban}>Open demo project</Button>
+                <Button variant="secondary" onClick={() => setGuidedSteps((prev) => ({ ...prev, feedback: true }))} icon={MessageSquare}>Give feedback</Button>
+              </div>
+            </div>
+            <div style={{ ...glass, padding: 18, borderRadius: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 18 }}>{sampleProjects[0].name}</div>
+                  <div style={{ color: theme.muted, fontSize: 13, marginTop: 6 }}>Genre: Afro-R&B / Pop · {sampleProjects[0].bpm} BPM · {sampleProjects[0].key}</div>
+                </div>
+                <Pill color={theme.success}>Ready for musician test</Pill>
+              </div>
+              <div style={{ marginTop: 16 }}><Progress value={testCompletion} color={theme.success} /></div>
+              <div style={{ fontSize: 13, color: theme.muted, marginTop: 10 }}>Musician Test Progress: {testCompletion}%</div>
+              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                {[
+                  ['Lyrics', 'Prefilled to avoid empty-state confusion'],
+                  ['Song idea prompt', 'Ready for generation testing'],
+                  ['Stem list', `${stems.length} stems available for mix testing`],
+                  ['Master preset', masterPresets.find((item) => item.id === selectedPreset)?.name || 'Not selected'],
+                ].map(([label, helper]) => <div key={label} style={{ ...listItem, flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}><div style={{ fontWeight: 700 }}>{label}</div><div style={{ fontSize: 12, color: theme.muted }}>{helper}</div></div>)}
+              </div>
+            </div>
+          </div>
+        </Card>
+        <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '0.95fr 1.05fr' : '1fr', gap: 18 }}>
+          <Card title="Guided test checklist" subtitle="A focused path ensures feedback is fair and actionable.">
+            <div style={{ display: 'grid', gap: 10 }}>
+              {[
+                ['listen', 'Step 1 — Listen to the demo idea'],
+                ['lyrics', 'Step 2 — Write or edit lyrics'],
+                ['draft', 'Step 3 — Generate a song draft'],
+                ['stem', 'Step 4 — Add a sound or stem'],
+                ['mix', 'Step 5 — Adjust the mix'],
+                ['master', 'Step 6 — Choose a master preset'],
+                ['deliver', 'Step 7 — Prepare delivery'],
+                ['feedback', 'Step 8 — Submit feedback'],
+              ].map(([key, label]) => (
+                <button key={key} onClick={() => setGuidedSteps((prev) => ({ ...prev, [key]: !prev[key] }))} style={{ ...listItem, cursor: 'pointer', color: theme.text, border: guidedSteps[key] ? `1px solid ${theme.cyan}55` : `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><CheckCircle2 size={18} color={guidedSteps[key] ? theme.cyan : theme.muted} /><span>{label}</span></div>
+                  <div style={{ color: guidedSteps[key] ? theme.cyan : theme.muted }}>{guidedSteps[key] ? 'Done' : 'Todo'}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap' }}>
+              <Button variant="secondary" onClick={() => { setNav('studio'); setSection('create'); setGuidedSteps((prev) => ({ ...prev, lyrics: true })); }} icon={Mic}>Open Create</Button>
+              <Button variant="secondary" onClick={() => { setNav('studio'); setSection('produce'); }} icon={Music2}>Open Produce</Button>
+              <Button variant="secondary" onClick={() => { setNav('studio'); setSection('mix'); setGuidedSteps((prev) => ({ ...prev, mix: true })); }} icon={SlidersHorizontal}>Open Mix</Button>
+            </div>
+          </Card>
+          <Card title="Make It Magic" subtitle="The memorable one-click demo of the full AudioMagic flow.">
+            <div style={{ color: theme.muted, lineHeight: 1.7, marginBottom: 16 }}>This demo action improves the lyrics, suggests a hook, adds production direction, creates extra stems, prepares the mix, selects a master preset, and marks the song ready for review.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              {[
+                'Improves the lyrics',
+                'Suggests a hook',
+                'Adds production direction',
+                'Adds stems',
+                'Prepares a mix',
+                'Selects a master preset',
+              ].map((item) => <div key={item} style={{ ...listItem, justifyContent: 'flex-start' }}><Wand2 size={16} color={theme.magenta} /><span>{item}</span></div>)}
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <Button variant="magenta" onClick={makeItMagic} icon={Sparkles}>Make It Magic</Button>
+              <div style={{ ...listItem, color: magicState === 'done' ? theme.success : theme.muted }}>{magicState === 'running' ? 'Creating demo magic…' : magicState === 'done' ? 'Magic pass complete' : 'Ready'}</div>
+            </div>
+          </Card>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1fr 1fr' : '1fr', gap: 18 }}>
+          <Card title="Before / After" subtitle="Show the product value clearly for the tester.">
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 14 }}>
+              <div style={{ ...glass, padding: 18, borderRadius: 20 }}>
+                <div style={{ fontWeight: 800, marginBottom: 12 }}>Before AudioMagic</div>
+                {['Raw idea', 'Basic lyrics', 'No arrangement', 'No mix direction'].map((item) => <div key={item} style={{ color: theme.muted, marginBottom: 10 }}>• {item}</div>)}
+              </div>
+              <div style={{ ...glass, padding: 18, borderRadius: 20, border: `1px solid ${theme.cyan}33` }}>
+                <div style={{ fontWeight: 800, marginBottom: 12, color: theme.cyan }}>After AudioMagic</div>
+                {['Structured song', 'Hook suggestion', 'Production plan', 'Stems prepared', 'Master target selected', 'Release checklist ready'].map((item) => <div key={item} style={{ color: theme.text, marginBottom: 10 }}>• {item}</div>)}
+              </div>
+            </div>
+          </Card>
+          <Card title="What this app does" subtitle="Make the core workflow obvious.">
+            <div style={{ fontWeight: 800, fontSize: 18 }}>Write → Create → Produce → Mix → Master → Deliver</div>
+            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+              {[
+                ['Create', 'Lyrics, voice, and song idea'],
+                ['Produce', 'Beat, arrangement, and stems'],
+                ['Mix', 'Balance, pan, and levels'],
+                ['Master', 'Loudness and final sound'],
+                ['Deliver', 'Metadata, exports, credits, and review'],
+              ].map(([title, helper]) => <div key={title} style={{ ...listItem, flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}><div style={{ fontWeight: 700 }}>{title}</div><div style={{ fontSize: 13, color: theme.muted }}>{helper}</div></div>)}
+            </div>
+          </Card>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isDesktop ? '1.05fr 0.95fr' : '1fr', gap: 18 }}>
+          <Card title="Musician feedback" subtitle="Collect structured feedback after the test.">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <label style={{ display: 'grid', gap: 8 }}><span>How easy was it to understand the app? (1–5)</span><input type="range" min="1" max="5" value={feedback.clarity} onChange={(e) => setFeedback((prev) => ({ ...prev, clarity: Number(e.target.value) }))} /></label>
+              <label style={{ display: 'grid', gap: 8 }}><span>Would you use this for a real song idea?</span><select value={feedback.realUse} onChange={(e) => setFeedback((prev) => ({ ...prev, realUse: e.target.value }))} style={inputStyle}><option>Yes</option><option>Maybe</option><option>No</option></select></label>
+              <label style={{ display: 'grid', gap: 8 }}><span>Which part felt most useful?</span><select value={feedback.usefulPart} onChange={(e) => setFeedback((prev) => ({ ...prev, usefulPart: e.target.value }))} style={inputStyle}><option>Lyrics</option><option>Production</option><option>Mixing</option><option>Mastering</option><option>Release preparation</option><option>Review workflow</option></select></label>
+              <textarea value={feedback.confused} onChange={(e) => setFeedback((prev) => ({ ...prev, confused: e.target.value }))} placeholder="What confused you?" style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
+              <textarea value={feedback.missing} onChange={(e) => setFeedback((prev) => ({ ...prev, missing: e.target.value }))} placeholder="What feature is missing?" style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
+              <textarea value={feedback.pay} onChange={(e) => setFeedback((prev) => ({ ...prev, pay: e.target.value }))} placeholder="What would make you pay for this?" style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
+              <label style={{ display: 'grid', gap: 8 }}><span>Overall rating (1–10)</span><input type="range" min="1" max="10" value={feedback.overall} onChange={(e) => setFeedback((prev) => ({ ...prev, overall: Number(e.target.value) }))} /></label>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <Button onClick={exportFeedback} icon={Download}>Export Feedback JSON</Button>
+                <Button variant="secondary" onClick={() => setGuidedSteps((prev) => ({ ...prev, feedback: true }))} icon={CheckCircle2}>Mark feedback complete</Button>
+              </div>
+            </div>
+          </Card>
+          <Card title="Timestamp review notes" subtitle="Capture fast observations while testing.">
+            <div style={{ display: 'grid', gap: 10 }}>
+              {reviewNotes.map((note) => <div key={note} style={listItem}><div>{note}</div><Pill color={theme.magenta}>Note</Pill></div>)}
+            </div>
+            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+              <input value={newReviewNote} onChange={(e) => setNewReviewNote(e.target.value)} placeholder="e.g. 05:10 — The mix view feels closest to a real studio workflow." style={inputStyle} />
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <Button variant="secondary" onClick={addReviewNote} icon={MessageSquare}>Add note</Button>
+              </div>
+            </div>
+            <div style={{ marginTop: 16, padding: 16, borderRadius: 18, background: 'rgba(255,255,255,0.03)', border: `1px solid ${theme.border}` }}>
+              <div style={{ fontWeight: 700 }}>Founder note</div>
+              <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.7, marginTop: 8 }}>Please test this like you are preparing a real song idea. Focus on clarity, usefulness, speed, what feels missing, what feels professional, and what feels unnecessary.</div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    ),
     release: (
       <Card title="Release Room" subtitle="Credits, metadata, exports, and readiness.">
         <Progress value={Math.round((Object.values(deliverState).filter(Boolean).length / 6) * 100)} color={theme.success} />
@@ -752,7 +963,7 @@ function AppShell({ onLogout, language, setLanguage }) {
                       {sidebarOpen && (
                         <div style={{ display: 'grid', justifyItems: 'start' }}>
                           <span style={{ fontWeight: 700 }}>{item.label}</span>
-                          <span style={{ fontSize: 11, color: theme.muted }}>{item.id === 'studio' ? 'Create, mix and deliver' : item.id === 'projects' ? 'Open session folders' : item.id === 'dashboard' ? 'Daily studio overview' : item.id === 'library' ? 'Sounds and presets' : item.id === 'collab' ? 'Comments and reviews' : item.id === 'release' ? 'Export and publishing' : 'Preferences'}</span>
+                          <span style={{ fontSize: 11, color: theme.muted }}>{item.id === 'studio' ? 'Create, mix and deliver' : item.id === 'projects' ? 'Open session folders' : item.id === 'dashboard' ? 'Daily studio overview' : item.id === 'library' ? 'Sounds and presets' : item.id === 'collab' ? 'Comments and reviews' : item.id === 'test' ? 'Musician guided feedback' : item.id === 'release' ? 'Export and publishing' : 'Preferences'}</span>
                         </div>
                       )}
                     </div>
