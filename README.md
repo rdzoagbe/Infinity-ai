@@ -1,65 +1,116 @@
-# AudioMagic.ai MVP v8
+# 🎧 AudioMagic.ai
 
-AudioMagic.ai is a browser-based AI music-studio workflow prototype built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, Web Audio API, and JSZip.
+**Unified AI Music Production Platform**  
+Record · Generate · Mix · Export — all in the browser.
 
-## v8 focus: Creator Tools & Stem Intelligence
+---
 
-v8 adds DAW-inspired creator tools while keeping the guided AudioMagic flow: lyrics → copilot → producer → engineer → release.
+## 🚀 Quick Start
 
-New v8 capabilities:
-
-- AI MixSplit-style upload panel that creates editable separated stem lanes: vocals, drums, bass, melody, and other
-- Step Sequencer grid for kick, snare, hat, and bass pattern editing
-- Vocal Chain preset panel for Afrobeat lead, R&B smooth stack, drill vocal cut, and clean spoken voice
-- Sound Pack browser with starter kits for Afrobeat, R&B, Trap, and Lo-Fi
-- Stem waveform widgets with mute, solo, volume, pan, fade-in, and fade-out controls
-- Workspace-level Creator Tools panel mounted directly under the AI Song Copilot
-- Extended stem metadata for future real DSP integration: split role, source tool, mute/solo, fades, and trims
-
-## Retained from v7
-
-- AI Song Copilot with mood, key, BPM, density, structure, and next-action guidance
-- Song readiness score and missing-step checklist
-- Music-player-style session command center
-- Room-based navigation: Creative Room, Recording Booth, Producer Lab, Mix Room, Release Room
-- Clearer workspace hierarchy and guided next steps
-
-## Retained from v5/v6
-
-- Complete studio lifecycle: Idea → Lyrics → Demo Vocal → Beat → Arrangement → Recording → Mix → Master → Release
-- Recording Booth controls: count-in, metronome toggle, section-based vocal takes
-- Take manager with best-take selection, ratings, and notes
-- Approval gates for Artist, Producer, Engineer, and Final Master
-- Version history for demo, beat, mix, master, and release snapshots
-- Release/export package builder for WAV master, MP3 preview, stems ZIP, instrumental, acapella, lyrics PDF, and release notes
-- Producer Beat Library and Engineer Sonic Stage
-
-## Run locally
-
-```powershell
+```bash
+# 1 — Install dependencies
 npm install
+
+# 2 — Start dev server (opens at http://localhost:3000)
 npm run dev
-```
 
-Open the Vite URL shown in the terminal, usually:
-
-```text
-http://localhost:5173
-```
-
-## Production preview
-
-```powershell
+# 3 — Build for production
 npm run build
-npm run preview
 ```
 
-Open the preview URL shown by Vite, usually:
+---
 
-```text
-http://localhost:4173
+## 🗂 Project Structure
+
+```
+audiomagic/
+├── index.html                  ← HTML entry point
+├── vite.config.js              ← Vite config
+├── package.json                ← Dependencies
+└── src/
+    ├── main.jsx                ← React root mount
+    └── AudioMagic_complete.jsx ← Full platform (single file)
 ```
 
-## Notes
+---
 
-This remains a frontend MVP. AI MixSplit, vocal correction, sound packs, waveform editing, and audio-part widgets are implemented as product-ready UI/UX prototypes with project metadata updates. A production platform would connect these flows to authentication, database persistence, cloud audio storage, real stem-separation models, DSP/audio rendering services, sample-pack hosting, licensing, and billing.
+## ✨ Features
+
+### 🎙 Artist Tab
+- **Smart Notepad** — Write lyrics with an AI Co-Writer that suggests rhymes, hooks, and next lines
+- **The Booth** — Real microphone recording via `MediaRecorder API`, live timer + animated waveform
+- **Ghostwriter Mode** — Voice clone consent script, 30s capture simulation, AI acapella generation
+
+### 🎛 Producer Tab — Beat Library
+8 Genres × 3 patterns each, **synthesized live** with Web Audio API:
+
+| Genre | BPM | Swing | Style |
+|-------|-----|-------|-------|
+| 🎤 Hip-Hop | 92 | 0.10 | Classic boom bap |
+| 🎵 R&B | 86 | 0.15 | Smooth soulful groove |
+| 🔥 Trap | 140 | 0 | Hard-hitting 808s |
+| 🌍 Afrobeat | 108 | 0.05 | Polyrhythmic Lagos feel |
+| 🎷 Jazz | 132 | 0.33 | Heavy swing ride |
+| ☁️ Lo-Fi | 78 | 0.25 | Dusty chill tape |
+| 🖤 Drill | 144 | 0 | Dark sliding 808 |
+| 🌴 Dancehall | 96 | 0.05 | Island riddim |
+
+Every hit (kick, snare, hi-hat, open hat, bass) is generated in real time with:
+- `OscillatorNode` + `GainNode` for tonal hits
+- `createBuffer` noise for snares/hats with `BiquadFilterNode`
+- `StereoPannerNode` for spatial positioning
+
+### 🔊 Engineer Tab
+- **Sonic Stage** — 2D spatial mixer with Framer Motion draggable tokens
+- **Web Audio Routing** — X-axis → `StereoPannerNode`, Y-axis → `GainNode`
+- **A/B Compare** — Raw vs AI Master (gain chain switching)
+- **Master Playback** — All stems + beat in sync
+
+### 📦 Real ZIP Export (via JSZip)
+Clicking **DOWNLOAD ZIP** produces a real `.zip` file containing:
+- `beat_<genre>_<bpm>bpm.wav` — Beat rendered to WAV via `OfflineAudioContext` (4 bars, 44.1kHz stereo)
+- `lyrics.txt` — Your lyrics text
+- `vocal_recording.webm` — Your mic recording (if captured)
+- `stems/<name>.audio` — Any uploaded stems
+- `project.json` — Project metadata
+
+---
+
+## 🛠 Tech Stack
+
+| Layer | Tech |
+|-------|------|
+| UI Framework | React 18 + Vite |
+| Animations | Framer Motion |
+| Icons | lucide-react |
+| Audio Engine | Web Audio API (native browser) |
+| Beat Render | `OfflineAudioContext` → WAV |
+| ZIP Export | JSZip 3 |
+| Fonts | Orbitron + Rajdhani (Google Fonts) |
+
+---
+
+## 📋 Requirements
+
+- Node.js 18+
+- Modern browser (Chrome, Edge, Firefox, Safari 15+)
+- Microphone permission (for vocal recording)
+
+---
+
+## 🎨 Design System
+
+| Token | Value |
+|-------|-------|
+| Background | `#101116` |
+| Surface | `rgba(26,28,35,0.95)` + glassmorphism |
+| Neon Cyan | `#00E5FF` |
+| Neon Magenta | `#FF00FF` |
+| Success Green | `#00FF88` |
+| Gold | `#FFD700` |
+| Display Font | Orbitron |
+| Body Font | Rajdhani |
+
+---
+
+Built with ❤️ by AudioMagic.ai
