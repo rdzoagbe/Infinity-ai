@@ -1,122 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>AudioMagic.ai — Unified Music Production Platform</title>
-    <meta name="description" content="AudioMagic.ai — AI-powered music production: record vocals, generate beats, mix and master in the browser." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-
-      html {
-        height: auto !important;
-        min-height: 100%;
-        background: #101116;
-        overflow-x: hidden !important;
-        overflow-y: scroll !important;
-        scroll-behavior: smooth;
-      }
-
-      body {
-        height: auto !important;
-        min-height: 100%;
-        margin: 0;
-        background: #101116;
-        overflow-x: hidden !important;
-        overflow-y: visible !important;
-        font-family: 'Rajdhani', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      }
-
-      #root,
-      #root > * {
-        height: auto !important;
-        min-height: 100dvh;
-        max-height: none !important;
-        background: #101116;
-        overflow: visible !important;
-      }
-
-      main,
-      section,
-      article,
-      aside,
-      div {
-        min-height: 0;
-      }
-
-      button,
-      input,
-      textarea,
-      select {
-        font: inherit;
-      }
-
-      button {
-        touch-action: manipulation;
-      }
-
-      /* Half-screen laptop windows need the full document to scroll, not trapped panels. */
-      @media (max-height: 820px) {
-        html {
-          overflow-y: scroll !important;
-        }
-
-        body,
-        #root,
-        #root > * {
-          height: auto !important;
-          min-height: 100dvh !important;
-          max-height: none !important;
-          overflow: visible !important;
-        }
-
-        aside,
-        main,
-        section,
-        article,
-        div {
-          max-height: none !important;
-        }
-
-        aside {
-          position: static !important;
-          overflow: visible !important;
-        }
-
-        [style*='100vh'],
-        [style*='100dvh'],
-        [style*='calc(100vh'],
-        [style*='calc(100dvh'] {
-          min-height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-        }
-
-        [style*='position: sticky'],
-        [style*='position:sticky'] {
-          position: static !important;
-        }
-      }
-
-      @media (max-width: 1180px) {
-        aside {
-          position: static !important;
-          min-height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Infinity — AI Music Production Ecosystem</title>
+  <meta name="description" content="Infinity is a futuristic AI-powered music production ecosystem for AI mixing, mastering, sound generation, DAW editing, and adaptive audio intelligence." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Orbitron:wght@600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
 </html>
