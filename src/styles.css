@@ -30,3 +30,11 @@
   background: linear-gradient(135deg,rgba(85,233,255,.13),rgba(255,77,225,.08));
   transform: translateY(-1px);
 }
+
+/* Infinity v3 private dashboard */
+.auth-field { display: grid; gap: 8px; color: var(--muted); font-weight: 700; }
+.auth-field input, .auth-field select, .auth-field textarea { width: 100%; border-radius: 16px; border: 1px solid var(--border); background: rgba(255,255,255,.05); color: var(--text); padding: 12px 14px; outline: none; }
+.auth-field option { color: #071018; }
+.project-card { min-height: 300px; display: flex; flex-direction: column; }
+.project-card .actions { margin-top: auto; }
+@media(max-width: 980px) { .auth-grid, .auth-two, .auth-three { grid-template-columns: 1fr !important; } }

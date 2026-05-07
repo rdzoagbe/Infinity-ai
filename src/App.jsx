@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
 import AudioMVP from './AudioMVP.jsx';
+import AuthDashboard from './AuthDashboard.jsx';
 
 const NAV_MAP = {
   mix: 'AI Mix & Master',
@@ -90,7 +91,7 @@ function Notice({ message, onClose }) {
         lineHeight: 1.45,
       }}
     >
-      <span style={{ color: '#55e9ff' }}>âœ¦</span>
+      <span style={{ color: '#55e9ff' }}>Ã¢Å“Â¦</span>
       <span>{message}</span>
       <button
         aria-label="Close notification"
@@ -105,7 +106,7 @@ function Notice({ message, onClose }) {
           fontSize: 18,
         }}
       >
-        Ã—
+        Ãƒâ€”
       </button>
     </div>
   );
@@ -161,11 +162,14 @@ export default function InfinityActionRouter() {
 
   return (
     <>
-      <BaseInfinityApp />
+      <AuthDashboard>
+        <BaseInfinityApp />
+      </AuthDashboard>
       <AudioMVP open={audioMvpOpen} onClose={() => setAudioMvpOpen(false)} />
       <Notice message={notice} onClose={() => setNotice('')} />
     </>
   );
 }
+
 
 
