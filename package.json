@@ -1,6 +1,6 @@
 {
     "name":  "infinity-ai-music-platform",
-    "version":  "4.0.0",
+    "version":  "5.0.0",
     "private":  true,
     "scripts":  {
                     "dev":  "vite",

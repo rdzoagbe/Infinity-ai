@@ -47,3 +47,41 @@ Set this environment variable when connecting frontend to backend:
 ```text
 VITE_INFINITY_API_URL=http://localhost:8000
 ```
+## Infinity v5 Frontend to Backend
+
+The audio workflow now connects the frontend upload overlay to the local FastAPI backend.
+
+Run backend:
+
+```powershell
+cd backend
+.\run-dev.ps1
+```
+
+Run frontend locally:
+
+```powershell
+npm run dev
+```
+
+Default backend URL:
+
+```text
+http://localhost:8000
+```
+
+Override it with:
+
+```text
+VITE_INFINITY_API_URL=http://localhost:8000
+```
+
+Frontend flow:
+
+1. Open Infinity studio
+2. Click Start Mix & Master or Upload audio
+3. Upload MP3/WAV/FLAC/ZIP
+4. Browser waveform/player appears
+5. File is uploaded to FastAPI
+6. Backend analyze endpoint runs
+7. Mix/master/stem/export placeholder jobs can be triggered from the frontend
