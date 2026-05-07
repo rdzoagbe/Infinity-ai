@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AudioLines, BrainCircuit, Cloud, CloudUpload, Download, FileAudio, FolderArchive,
   Gauge, Headphones, Layers3, Library, Menu, Mic2, Music2, Play, RefreshCw,
-  Settings2, SlidersHorizontal, Sparkles, WandSparkles, Waveform, X, Zap
+  Settings2, SlidersHorizontal, Sparkles, WandSparkles, AudioAudioAudioWaveform, X, Zap
 } from 'lucide-react';
 
 const nav = [
@@ -76,7 +76,7 @@ function Overview({ go }) {
     <div className="stack">
       <section className="hero">
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
-          <span className="pill">Infinity · evolving AI audio engineer</span>
+          <span className="pill">Infinity Â· evolving AI audio engineer</span>
           <h1>The future of <span>music creation</span> powered by adaptive intelligence.</h1>
           <p className="lead">Infinity is a premium, cinematic, minimalistic and futuristic AI music ecosystem for mixing, mastering, sound design, stem generation and AI audio creation.</p>
           <div className="actions">
@@ -101,12 +101,12 @@ function Overview({ go }) {
         <Card><b>5</b><span>Upload paths</span></Card>
         <Card><b>9</b><span>Mastering modes</span></Card>
         <Card><b>14</b><span>AI analysis stages</span></Card>
-        <Card><b>∞</b><span>Learning templates</span></Card>
+        <Card><b>âˆž</b><span>Learning templates</span></Card>
       </div>
 
       <Section eyebrow="Core concept" title="One adaptive ecosystem for the full music cycle" text="Infinity replaces fragmented tools with one evolving AI assistant: upload, record, edit, generate, mix, master, export and learn.">
         <div className="three">
-          <Feature icon={SlidersHorizontal} title="AI Mix & Master" text="Studio-quality mix and master with visual waveform, EQ, gain reduction, stereo image and spectrum." />
+          <Feature icon={SlidersHorizontal} title="AI Mix & Master" text="Studio-quality mix and master with visual AudioAudioAudioWaveform, EQ, gain reduction, stereo image and spectrum." />
           <Feature icon={Layers3} title="AI DAW" text="Timeline, drag blocks, cut/crop/fade, effects rack, piano roll, automation, loops and MIDI support." />
           <Feature icon={WandSparkles} title="AI Sound Generator" text="Prompt-to-WAV loops, one-shots, textures, cinematic FX, ambient layers and synth presets." />
         </div>
@@ -138,7 +138,7 @@ function MixPage() {
       </div>
 
       <div className="two">
-        <Card><h3>Waveform + EQ movement</h3><Bars tone={compare === 'After' ? 'cyan' : 'magenta'} /></Card>
+        <Card><h3>AudioWaveform + EQ movement</h3><Bars tone={compare === 'After' ? 'cyan' : 'magenta'} /></Card>
         <Card><h3>Gain reduction + stereo image</h3><Bars tone="violet" count={28}/><div className="scope">{mode}</div></Card>
       </div>
     </div>
@@ -161,7 +161,7 @@ function DawPage() {
           </div>
           <div className="tools">
             <Feature icon={Music2} title="AI chord suggestions" text="Generate harmonic movement that fits the emotion." />
-            <Feature icon={Waveform} title="AI melody continuation" text="Continue motifs and toplines intelligently." />
+            <Feature icon={AudioWaveform} title="AI melody continuation" text="Continue motifs and toplines intelligently." />
             <Feature icon={Gauge} title="AI rhythm generation" text="Build groove-aware patterns and beats." />
             <Feature icon={Settings2} title="Effects rack" text="Design vocal chains, synth patches and cinematic atmospheres." />
           </div>
@@ -186,7 +186,7 @@ function GeneratorPage() {
             <button className="secondary"><RefreshCw size={16}/> Regenerate variations</button>
           </Card>
           <div className="stack small">{['Infinity Choir Layer', 'War Drums Pulse', 'Desert Atmos Pad', 'Hybrid Bass Hit'].map((name, index) => (
-            <Card key={name}><h3>{name}</h3><p className="muted">{index % 2 ? 'Loop' : 'Texture'} · instant preview · WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button className="secondary"><Play size={15}/> Preview</button><button className="secondary"><Download size={15}/> Download WAV</button></div></Card>
+            <Card key={name}><h3>{name}</h3><p className="muted">{index % 2 ? 'Loop' : 'Texture'} Â· instant preview Â· WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button className="secondary"><Play size={15}/> Preview</button><button className="secondary"><Download size={15}/> Download WAV</button></div></Card>
           ))}</div>
         </div>
       </Section>
@@ -260,3 +260,4 @@ export default function App() {
     </div>
   );
 }
+
