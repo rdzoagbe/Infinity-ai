@@ -128,6 +128,8 @@ export default function InfinityActionRouter() {
       const button = event.target.closest?.('button');
       if (!button) return;
 
+      if (button.closest('[data-infinity-auth="true"]')) return;
+
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
       if (!label) return;
 

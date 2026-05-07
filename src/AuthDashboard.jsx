@@ -26,7 +26,7 @@ function LoginScreen({ onLogin }) {
     onLogin(profile);
   };
 
-  return <main style={shell}>
+  return <main data-infinity-auth="true" style={shell}>
     <div style={{ maxWidth: 1180, margin: '0 auto', display: 'grid', gridTemplateColumns: '1.1fr .9fr', gap: 18, alignItems: 'stretch' }} className="auth-grid">
       <section style={{ ...panel, padding: 28, overflow: 'hidden', position: 'relative' }}>
         <div style={{ position: 'absolute', width: 280, height: 280, borderRadius: 999, background: 'rgba(85,233,255,.18)', filter: 'blur(28px)', top: 30, left: 40 }} />
@@ -64,7 +64,7 @@ function CreateProjectModal({ onClose, onCreate }) {
   const [project, setProject] = useState({ title: '', artist: '', type: 'Full song', genre: 'Afrobeat', status: 'Draft', notes: '' });
   const update = (key, value) => setProject((current) => ({ ...current, [key]: value }));
   const submit = (event) => { event.preventDefault(); onCreate({ id: makeId(), ...project, title: project.title.trim() || 'Untitled Infinity Session', artist: project.artist.trim() || 'Unknown Artist', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), files: [], analysis: { bpm: 'Pending', key: 'Pending', loudness: 'Pending', status: 'Ready for upload' } }); };
-  return <div style={{ position: 'fixed', inset: 0, zIndex: 9997, background: 'rgba(0,0,0,.68)', padding: 18, overflowY: 'auto' }}>
+  return <div data-infinity-auth="true" style={{ position: 'fixed', inset: 0, zIndex: 9997, background: 'rgba(0,0,0,.68)', padding: 18, overflowY: 'auto' }}>
     <form onSubmit={submit} style={{ ...panel, maxWidth: 720, margin: '40px auto', padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14 }}><div><p className="eyebrow">New project</p><h2 style={{ margin: '6px 0 8px' }}>Create private song session</h2><p className="muted">Prepare a project container before upload, mix, master, export or AI generation.</p></div><button type="button" className="secondary" onClick={onClose} style={{ width: 42, height: 42, padding: 0 }}><X size={18} /></button></div>
       <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
@@ -93,7 +93,7 @@ function ProjectCard({ project, onOpen, onDelete }) {
 
 function Dashboard({ profile, projects, onCreate, onLogout, onOpenProject, onDeleteProject }) {
   const stats = useMemo(() => ({ total: projects.length, active: projects.filter((project) => ['In production', 'Ready for mastering', 'Ready for upload'].includes(project.status)).length, exportReady: projects.filter((project) => project.status === 'Ready for export').length }), [projects]);
-  return <main style={shell}><div style={{ maxWidth: 1280, margin: '0 auto', display: 'grid', gap: 18 }}>
+  return <main data-infinity-auth="true" style={shell}><div style={{ maxWidth: 1280, margin: '0 auto', display: 'grid', gap: 18 }}>
     <header style={{ ...panel, padding: 20, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}><div style={{ display: 'flex', gap: 14, alignItems: 'center' }}><div className="logo" /><div><p className="eyebrow">Infinity private dashboard</p><h2 style={{ margin: '4px 0 0' }}>Welcome, {profile.name}</h2><p className="muted" style={{ margin: '6px 0 0' }}>{profile.role} - {profile.email}</p></div></div><div className="actions"><button className="primary" onClick={onCreate}><FolderPlus size={16} /> New project</button><button className="secondary" onClick={onLogout}><LogOut size={16} /> Logout</button></div></header>
     <section className="stats"><Stat label="Private projects" value={stats.total} icon={LibraryIcon} /><Stat label="Active sessions" value={stats.active} icon={AudioLines} /><Stat label="Ready for export" value={stats.exportReady} icon={CloudUpload} /><Stat label="Local MVP auth" value="ON" icon={Lock} /></section>
     <section style={{ ...panel, padding: 22 }}><div className="section-head"><div><p className="eyebrow">Projects</p><h2>Private song sessions</h2><p className="muted wide">Create a project, open the Infinity studio, upload audio, test the flow, and keep metadata organized locally until Supabase/Firebase storage is connected.</p></div><button className="primary" onClick={onCreate}><Plus size={16} /> Create project</button></div>{projects.length ? <div className="three">{projects.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpenProject} onDelete={onDeleteProject} />)}</div> : <div className="card" style={{ boxShadow: 'none', textAlign: 'center' }}><FolderPlus size={34} color="#55e9ff" /><h3>No private project yet</h3><p className="muted">Create your first project to start the Infinity song cycle.</p><button className="primary" onClick={onCreate}><Plus size={16} /> Create first project</button></div>}</section>
@@ -116,6 +116,6 @@ export default function AuthDashboard({ children }) {
   const deleteProject = (id) => setProjects((current) => current.filter((project) => project.id !== id));
 
   if (!profile) return <LoginScreen onLogin={setProfile} />;
-  if (studioOpen) return <>{children}<div style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button className="secondary" onClick={() => setStudioOpen(false)}>â† Dashboard</button><span className="pill">{currentProject?.title || 'Infinity Studio'}</span></div></>;
+  if (studioOpen) return <>{children}<div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button className="secondary" onClick={() => setStudioOpen(false)}>â† Dashboard</button><span className="pill">{currentProject?.title || 'Infinity Studio'}</span></div></>;
   return <><Dashboard profile={profile} projects={projects} onCreate={() => setShowCreate(true)} onLogout={logout} onOpenProject={openProject} onDeleteProject={deleteProject} />{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} /> : null}</>;
 }
