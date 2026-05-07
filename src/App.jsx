@@ -1,5 +1,6 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
+import AudioMVP from './AudioMVP.jsx';
 
 const NAV_MAP = {
   mix: 'AI Mix & Master',
@@ -56,7 +57,7 @@ function routeForLabel(label) {
     return { page: 'exports', message: 'Opening Export System. A placeholder export may download for testing.' };
   }
   if (text.includes('mix') || text.includes('master') || text.includes('upload') || text.includes('before') || text.includes('after') || text.includes('premium')) {
-    return { page: 'mix', message: 'Opening AI Mix & Master. Real upload/processing comes in the backend phase.' };
+    return { page: 'mix', audioMvp: text.includes('upload') || text.includes('start mix') || text.includes('mix & master'), message: 'Opening AI Mix & Master. Real audio upload/player/analyzer is available in Infinity v2.' };
   }
   if (text.includes('preview') || text.includes('play')) {
     return { page: null, message: 'Preview action is wired. Real audio playback comes after audio files are connected.' };
@@ -112,6 +113,7 @@ function Notice({ message, onClose }) {
 
 export default function InfinityActionRouter() {
   const [notice, setNotice] = useState('');
+  const [audioMvpOpen, setAudioMvpOpen] = useState(false);
   const timer = useRef(null);
 
   const showNotice = (message) => {
@@ -135,6 +137,10 @@ export default function InfinityActionRouter() {
 
       const route = routeForLabel(label);
 
+      if (route.audioMvp) {
+        window.setTimeout(() => setAudioMvpOpen(true), 180);
+      }
+
       if (label.toLowerCase().includes('download') || label.toLowerCase().includes('export')) {
         downloadPlaceholder(label);
       }
@@ -156,8 +162,10 @@ export default function InfinityActionRouter() {
   return (
     <>
       <BaseInfinityApp />
+      <AudioMVP open={audioMvpOpen} onClose={() => setAudioMvpOpen(false)} />
       <Notice message={notice} onClose={() => setNotice('')} />
     </>
   );
 }
+
 
