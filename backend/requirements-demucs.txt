@@ -1,0 +1,7 @@
+# Optional heavy dependency for real stem separation.
+# Install only when you want /api/v1/audio/separate-stems to run real separation.
+# Recommended Python: 3.11 or 3.12
+# Recommended command from backend folder:
+#   .\.venv\Scripts\python.exe -m pip install -r requirements-demucs.txt
+
+demucs==4.0.1
