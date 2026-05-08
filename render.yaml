@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: infinity-ai-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: INFINITY_ENV
+        value: production
+      - key: INFINITY_STORAGE_DIR
+        value: /tmp/infinity-storage
+      - key: INFINITY_MAX_UPLOAD_MB
+        value: 250
+      - key: INFINITY_ALLOWED_ORIGINS
+        value: https://rdzoagbe.github.io,http://localhost:3000,http://localhost:4173,http://localhost:5173
