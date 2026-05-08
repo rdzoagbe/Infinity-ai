@@ -2,3 +2,18 @@ node_modules
 dist
 .DS_Store
 .env
+
+.env
+.env.local
+
+# Local environment files
+.env
+.env.local
+
+# Python backend local environment/cache
+backend/.venv/
+backend/storage/
+backend/**/__pycache__/
+backend/**/*.pyc
+*.pyc
+__pycache__/
