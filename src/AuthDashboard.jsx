@@ -3,11 +3,14 @@ import {
   AudioLines,
   Cloud,
   CloudUpload,
+  Eye,
+  EyeOff,
   FolderPlus,
   Lock,
   LogOut,
   Music2,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   X,
@@ -61,6 +64,16 @@ function makeId(prefix = 'item') {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function generatePasswordSuggestion() {
+  const words = ['Sonic', 'Velvet', 'Nova', 'Echo', 'Studio', 'Rhythm', 'Orbit', 'Pulse', 'Wave', 'Neon'];
+  const symbols = ['!', '#', '%', '*'];
+  const one = words[Math.floor(Math.random() * words.length)];
+  const two = words[Math.floor(Math.random() * words.length)];
+  const number = Math.floor(1000 + Math.random() * 9000);
+  const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+  return `${one}${two}${number}${symbol}`;
+}
+
 function formatDate(value) {
   try {
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -105,6 +118,39 @@ function ModeBadge({ cloudMode }) {
       {cloudMode ? <Cloud size={14} /> : <Lock size={14} />}
       {cloudMode ? 'Cloud Mode' : 'Local Mode'}
     </span>
+  );
+}
+
+function PasswordInput({ value, onChange, disabled }) {
+  const [visible, setVisible] = useState(false);
+
+  const useSuggestion = () => {
+    const next = generatePasswordSuggestion();
+    onChange(next);
+  };
+
+  return (
+    <label className="auth-field">
+      Password
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          type={visible ? 'text' : 'password'}
+          placeholder="Minimum 6 characters"
+          disabled={disabled}
+          autoComplete="current-password"
+          style={{ minWidth: 0 }}
+        />
+        <button type="button" className="secondary" onClick={() => setVisible((current) => !current)} disabled={disabled} title={visible ? 'Hide password' : 'Show password'} style={{ padding: '12px 14px' }}>
+          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+        <button type="button" className="secondary" onClick={useSuggestion} disabled={disabled} title="Generate password suggestion" style={{ padding: '12px 14px' }}>
+          <RefreshCw size={16} />
+        </button>
+      </div>
+      <small className="muted">Use the eye to show/hide. Use the refresh button to generate a strong suggestion.</small>
+    </label>
   );
 }
 
@@ -212,9 +258,9 @@ function StartPrivateSession({ onLogin }) {
 
         <section style={{ ...panel, padding: 24 }}>
           <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-            <button className={mode === 'cloud-signin' ? 'primary' : 'secondary'} onClick={() => setMode('cloud-signin')} disabled={!isSupabaseConfigured}>Cloud sign in</button>
-            <button className={mode === 'cloud-signup' ? 'primary' : 'secondary'} onClick={() => setMode('cloud-signup')} disabled={!isSupabaseConfigured}>Cloud sign up</button>
-            <button className={mode === 'local' ? 'primary' : 'secondary'} onClick={() => setMode('local')}>Local fallback</button>
+            <button type="button" className={mode === 'cloud-signin' ? 'primary' : 'secondary'} onClick={() => setMode('cloud-signin')} disabled={!isSupabaseConfigured}>Cloud sign in</button>
+            <button type="button" className={mode === 'cloud-signup' ? 'primary' : 'secondary'} onClick={() => setMode('cloud-signup')} disabled={!isSupabaseConfigured}>Cloud sign up</button>
+            <button type="button" className={mode === 'local' ? 'primary' : 'secondary'} onClick={() => setMode('local')}>Local fallback</button>
           </div>
 
           <p className="eyebrow">{isSupabaseConfigured ? 'Supabase configured' : 'Supabase not configured locally'}</p>
@@ -222,8 +268,8 @@ function StartPrivateSession({ onLogin }) {
           <p className="muted" style={{ lineHeight: 1.6 }}>{mode === 'local' ? 'Local mode stores projects in this browser only.' : 'Cloud mode stores projects in Supabase with private Row Level Security.'}</p>
 
           <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
-            <label className="auth-field">Email<input value={form.email} onChange={(event) => update('email', event.target.value)} type="email" placeholder="artist@email.com" /></label>
-            {mode !== 'local' ? <label className="auth-field">Password<input value={form.password} onChange={(event) => update('password', event.target.value)} type="password" placeholder="Minimum 6 characters" /></label> : null}
+            <label className="auth-field">Email<input value={form.email} onChange={(event) => update('email', event.target.value)} type="email" placeholder="artist@email.com" autoComplete="email" /></label>
+            {mode !== 'local' ? <PasswordInput value={form.password} onChange={(value) => update('password', value)} disabled={busy} /> : null}
             <label className="auth-field">Artist / producer name<input value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="Your artist or producer name" /></label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="auth-two">
               <label className="auth-field">Role<select value={form.role} onChange={(event) => update('role', event.target.value)}><option>Artist</option><option>Producer</option><option>Sound Engineer</option><option>Manager</option></select></label>
@@ -289,7 +335,7 @@ function CreateProjectModal({ onClose, onCreate, cloudMode }) {
             <label className="auth-field">Status<select value={project.status} onChange={(event) => update('status', event.target.value)}><option>Draft</option><option>Ready for upload</option><option>In production</option><option>Ready for mastering</option><option>Ready for export</option></select></label>
           </div>
           <label className="auth-field">Notes<textarea value={project.notes} onChange={(event) => update('notes', event.target.value)} rows={4} placeholder="Reference, emotion, target sound, release plan..." /></label>
-          <button className="primary" type="submit" disabled={busy}>{busy ? 'Creating...' : 'Create project'}</button>
+          <button type="submit" className="primary" disabled={busy}>{busy ? 'Creating...' : 'Create project'}</button>
         </div>
       </form>
     </div>
@@ -302,7 +348,7 @@ function ProjectCard({ project, onOpen, onDelete }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}><div><p className="eyebrow">{project.type}</p><h3 style={{ margin: '6px 0 4px' }}>{project.title}</h3><p className="muted" style={{ margin: 0 }}>{project.artist} - {project.genre}</p></div><span className="pill">{project.status}</span></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10, marginTop: 16 }}><div><span className="muted">BPM</span><b style={{ display: 'block' }}>{project.analysis?.bpm || 'Pending'}</b></div><div><span className="muted">Key</span><b style={{ display: 'block' }}>{project.analysis?.key || 'Pending'}</b></div></div>
       <p className="muted" style={{ lineHeight: 1.6, minHeight: 44 }}>{project.notes || 'No notes yet.'}</p><p className="muted" style={{ fontSize: 12 }}>Updated {formatDate(project.updatedAt)}</p>
-      <div className="actions"><button className="primary" onClick={() => onOpen(project)}><Music2 size={15} /> Open studio</button><button className="secondary" onClick={() => onDelete(project.id)}>Delete</button></div>
+      <div className="actions"><button type="button" className="primary" onClick={() => onOpen(project)}><Music2 size={15} /> Open studio</button><button type="button" className="secondary" onClick={() => onDelete(project.id)}>Delete</button></div>
     </div>
   );
 }
@@ -312,11 +358,11 @@ function Dashboard({ profile, projects, onCreate, onLogout, onOpenProject, onDel
   return (
     <main data-infinity-auth="true" style={shell}>
       <div style={{ maxWidth: 1280, margin: '0 auto', display: 'grid', gap: 18 }}>
-        <header style={{ ...panel, padding: 20, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}><div style={{ display: 'flex', gap: 14, alignItems: 'center' }}><div className="logo" /><div><p className="eyebrow">Infinity private dashboard</p><h2 style={{ margin: '4px 0 0' }}>Welcome, {profile.name}</h2><p className="muted" style={{ margin: '6px 0 0' }}>{profile.role} - {profile.email}</p></div></div><div className="actions"><ModeBadge cloudMode={cloudMode} /><button className="primary" onClick={onCreate}><FolderPlus size={16} /> New project</button><button className="secondary" onClick={onLogout}><LogOut size={16} /> Logout</button></div></header>
+        <header style={{ ...panel, padding: 20, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}><div style={{ display: 'flex', gap: 14, alignItems: 'center' }}><div className="logo" /><div><p className="eyebrow">Infinity private dashboard</p><h2 style={{ margin: '4px 0 0' }}>Welcome, {profile.name}</h2><p className="muted" style={{ margin: '6px 0 0' }}>{profile.role} - {profile.email}</p></div></div><div className="actions"><ModeBadge cloudMode={cloudMode} /><button type="button" className="primary" onClick={onCreate}><FolderPlus size={16} /> New project</button><button type="button" className="secondary" onClick={onLogout}><LogOut size={16} /> Logout</button></div></header>
         {error ? <div style={{ border: '1px solid rgba(255,90,90,.35)', background: 'rgba(255,90,90,.1)', color: '#ffd8d8', borderRadius: 16, padding: 12 }}>{error}</div> : null}
         <section className="stats"><Stat label="Private projects" value={loading ? '...' : stats.total} icon={Music2} /><Stat label="Active sessions" value={loading ? '...' : stats.active} icon={AudioLines} /><Stat label="Ready for export" value={loading ? '...' : stats.exportReady} icon={CloudUpload} /><Stat label={cloudMode ? 'Supabase cloud' : 'Local MVP auth'} value="ON" icon={cloudMode ? Cloud : Lock} /></section>
-        <section style={{ ...panel, padding: 22 }}><div className="section-head"><div><p className="eyebrow">Projects</p><h2>Private song sessions</h2><p className="muted wide">{cloudMode ? 'Projects are loaded from Supabase and protected by Row Level Security.' : 'Projects are stored locally in this browser until Supabase is configured or selected.'}</p></div><button className="primary" onClick={onCreate}><Plus size={16} /> Create project</button></div>
-          {projects.length ? <div className="three">{projects.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpenProject} onDelete={onDeleteProject} />)}</div> : <div className="card" style={{ boxShadow: 'none', textAlign: 'center' }}><FolderPlus size={34} color="#55e9ff" /><h3>{loading ? 'Loading projects...' : 'No private project yet'}</h3><p className="muted">Create your first project to start the Infinity song cycle.</p><button className="primary" onClick={onCreate}><Plus size={16} /> Create first project</button></div>}
+        <section style={{ ...panel, padding: 22 }}><div className="section-head"><div><p className="eyebrow">Projects</p><h2>Private song sessions</h2><p className="muted wide">{cloudMode ? 'Projects are loaded from Supabase and protected by Row Level Security.' : 'Projects are stored locally in this browser until Supabase is configured or selected.'}</p></div><button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create project</button></div>
+          {projects.length ? <div className="three">{projects.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpenProject} onDelete={onDeleteProject} />)}</div> : <div className="card" style={{ boxShadow: 'none', textAlign: 'center' }}><FolderPlus size={34} color="#55e9ff" /><h3>{loading ? 'Loading projects...' : 'No private project yet'}</h3><p className="muted">Create your first project to start the Infinity song cycle.</p><button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create first project</button></div>}
         </section>
       </div>
     </main>
@@ -374,6 +420,6 @@ export default function AuthDashboard({ children }) {
   const deleteProject = async (id) => { if (cloudMode) await deleteCloudProject(id); setProjects((current) => current.filter((project) => project.id !== id)); };
 
   if (!profile) return <StartPrivateSession onLogin={setProfile} />;
-  if (studioOpen) return <>{children}<div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button className="secondary" onClick={() => setStudioOpen(false)}>Back to dashboard</button><span className="pill">{currentProject?.title || 'Infinity Studio'}</span><ModeBadge cloudMode={cloudMode} /></div></>;
+  if (studioOpen) return <>{children}<div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button type="button" className="secondary" onClick={() => setStudioOpen(false)}>Back to dashboard</button><span className="pill">{currentProject?.title || 'Infinity Studio'}</span><ModeBadge cloudMode={cloudMode} /></div></>;
   return <><Dashboard profile={profile} projects={projects} onCreate={() => setShowCreate(true)} onLogout={logout} onOpenProject={openProject} onDeleteProject={deleteProject} cloudMode={cloudMode} loading={loading} error={error} />{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} cloudMode={cloudMode} /> : null}</>;
 }
