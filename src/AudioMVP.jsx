@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CloudUpload, Download, FileAudio, X } from 'lucide-react';
 import {
   API_BASE,
+  backendUrl,
   analyzeAudioOnBackend,
   checkBackendHealth,
   exportPackageOnBackend,
@@ -365,6 +366,7 @@ export default function AudioMVP({ open, onClose }) {
     mode,
     strength,
     apiBase: API_BASE,
+  backendUrl,
     exportedAt: new Date().toISOString(),
     note: 'Infinity v5 frontend-to-backend session export.',
   });
@@ -475,6 +477,36 @@ export default function AudioMVP({ open, onClose }) {
             <button className="secondary" onClick={() => runBackendJob('export')} disabled={!fileId || processing}>Create Export Package</button>
           </div>
         </div>
+
+        
+        {masterJob?.result?.downloads ? (
+          <div className="card" style={{ boxShadow: 'none', marginTop: 16 }}>
+            <h3>Real backend downloads</h3>
+            <p style={{ color: 'rgba(245,248,255,.68)' }}>If FFmpeg is installed, the mastered WAV/MP3 files are available below.</p>
+            <div className="actions">
+              {masterJob.result.downloads.master_wav ? (
+                <a className="secondary" href={backendUrl(masterJob.result.downloads.master_wav)} target="_blank" rel="noreferrer">Download Master WAV</a>
+              ) : null}
+              {masterJob.result.downloads.master_mp3 ? (
+                <a className="secondary" href={backendUrl(masterJob.result.downloads.master_mp3)} target="_blank" rel="noreferrer">Download Master MP3</a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {exportJob?.result?.downloads ? (
+          <div className="card" style={{ boxShadow: 'none', marginTop: 16 }}>
+            <h3>Export package downloads</h3>
+            <div className="actions">
+              {exportJob.result.downloads.original ? (
+                <a className="secondary" href={backendUrl(exportJob.result.downloads.original)} target="_blank" rel="noreferrer">Download Original</a>
+              ) : null}
+              {exportJob.result.downloads.analysis ? (
+                <a className="secondary" href={backendUrl(exportJob.result.downloads.analysis)} target="_blank" rel="noreferrer">Download Analysis JSON</a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12, marginTop: 16 }}>
           <JobCard title="Upload / Analyze" job={backendAnalysisJob} />

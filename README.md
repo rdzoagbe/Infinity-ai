@@ -85,3 +85,17 @@ Frontend flow:
 5. File is uploaded to FastAPI
 6. Backend analyze endpoint runs
 7. Mix/master/stem/export placeholder jobs can be triggered from the frontend
+## Infinity v6 Real Audio
+
+v6 upgrades the backend:
+
+- Real FFprobe/mutagen metadata analysis
+- Per-file storage workspace
+- FFmpeg mastering chain when FFmpeg is installed
+- Download endpoints for original, analysis JSON, mastered WAV, mastered MP3
+
+Install FFmpeg:
+
+```powershell
+winget install -e --id Gyan.FFmpeg
+```

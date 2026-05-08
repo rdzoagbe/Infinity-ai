@@ -50,3 +50,17 @@ cd backend
 ```
 
 The runner now automatically prefers Python 3.13, then 3.12, then 3.11.
+## Infinity v6 Real Audio
+
+v6 upgrades the backend:
+
+- Real FFprobe/mutagen metadata analysis
+- Per-file storage workspace
+- FFmpeg mastering chain when FFmpeg is installed
+- Download endpoints for original, analysis JSON, mastered WAV, mastered MP3
+
+Install FFmpeg:
+
+```powershell
+winget install -e --id Gyan.FFmpeg
+```

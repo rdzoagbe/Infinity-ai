@@ -17,6 +17,12 @@ async function parseResponse(response, fallbackMessage) {
   return payload;
 }
 
+export function backendUrl(path) {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `${API_BASE}${path}`;
+}
+
 export async function checkBackendHealth() {
   const response = await fetch(`${API_BASE}/health`);
   return parseResponse(response, "Backend health check failed");
