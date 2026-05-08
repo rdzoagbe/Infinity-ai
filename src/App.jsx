@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
 import AudioMVP from './AudioMVP.jsx';
 import AuthDashboard from './AuthDashboard.jsx';
+import BetaFeedback from './BetaFeedback.jsx';
 
 const NAV_MAP = {
   mix: 'AI Mix & Master',
@@ -100,15 +101,7 @@ function Notice({ message, onClose }) {
       <button
         aria-label="Close notification"
         onClick={onClose}
-        style={{
-          marginLeft: 'auto',
-          border: 'none',
-          background: 'transparent',
-          color: '#f5f8ff',
-          cursor: 'pointer',
-          padding: 0,
-          fontSize: 18,
-        }}
+        style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: '#f5f8ff', cursor: 'pointer', padding: 0, fontSize: 18 }}
       >
         x
       </button>
@@ -132,10 +125,7 @@ export default function InfinityActionRouter() {
       const button = event.target.closest?.('button');
       if (!button) return;
 
-      // Critical: never route clicks from login, account creation, dashboard, or project modals.
       if (button.closest('[data-infinity-auth="true"]')) return;
-
-      // Critical: route only the actual studio shell, never the auth dashboard.
       if (!button.closest('.app')) return;
 
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
@@ -176,6 +166,7 @@ export default function InfinityActionRouter() {
         <BaseInfinityApp />
       </AuthDashboard>
       <AudioMVP open={audioMvpOpen} onClose={() => setAudioMvpOpen(false)} />
+      <BetaFeedback />
       <Notice message={notice} onClose={() => setNotice('')} />
     </>
   );
