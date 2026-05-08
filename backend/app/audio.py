@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import json
-import math
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from mutagen import File as MutagenFile
 
@@ -12,8 +13,12 @@ def has_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
 
-def run_command(args: list[str]) -> tuple[int, str, str]:
-    process = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+def has_demucs() -> bool:
+    return shutil.which("demucs") is not None or importlib.util.find_spec("demucs") is not None
+
+
+def run_command(args: list[str], timeout: int | None = None) -> tuple[int, str, str]:
+    process = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     return process.returncode, process.stdout, process.stderr
 
 
@@ -56,6 +61,7 @@ def mutagen_metadata(path: Path) -> dict:
 def read_basic_audio_metadata(path: Path) -> dict:
     metadata = ffprobe_metadata(path) or mutagen_metadata(path)
     metadata["ffmpeg_available"] = has_ffmpeg()
+    metadata["demucs_available"] = has_demucs()
     metadata["source_path"] = str(path)
     return metadata
 
@@ -88,8 +94,9 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         "codec": metadata.get("codec"),
         "format_name": metadata.get("format_name"),
         "ffmpeg_available": metadata.get("ffmpeg_available"),
+        "demucs_available": metadata.get("demucs_available"),
         **traits,
-        "note": "Infinity v6 analysis. FFprobe/mutagen are real; BPM/key/genre are heuristic until Librosa/Essentia integration.",
+        "note": "Infinity v7 analysis. FFprobe/mutagen are real; BPM/key/genre are heuristic until Librosa/Essentia integration.",
     }
 
 
@@ -119,6 +126,68 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     else:
         outputs["mp3_error"] = mp3_stderr[-2000:]
     return {"status": "completed", "mode": mode, "strength": safe_strength, "filter_chain": audio_filter, "outputs": outputs}
+
+
+def separate_stems_with_demucs(input_path: Path, stems_dir: Path, model: str = "htdemucs") -> dict:
+    stems_dir.mkdir(parents=True, exist_ok=True)
+
+    if input_path.suffix.lower() == ".zip":
+        return {
+            "status": "skipped",
+            "reason": "ZIP stem packages are already grouped audio assets; upload a mixed MP3/WAV/FLAC for Demucs separation.",
+        }
+
+    if not has_demucs():
+        return {
+            "status": "skipped",
+            "reason": "Demucs is not installed in the backend environment.",
+            "install_hint": "cd backend; .\\.venv\\Scripts\\python.exe -m pip install -r requirements-demucs.txt",
+            "expected_outputs": ["vocals.wav", "drums.wav", "bass.wav", "other.wav"],
+        }
+
+    demucs_root = stems_dir / "demucs_output"
+    if demucs_root.exists():
+        shutil.rmtree(demucs_root)
+    demucs_root.mkdir(parents=True, exist_ok=True)
+
+    commands = []
+    if shutil.which("demucs"):
+        commands.append(["demucs", "-n", model, "--out", str(demucs_root), str(input_path)])
+    commands.append([sys.executable, "-m", "demucs", "-n", model, "--out", str(demucs_root), str(input_path)])
+
+    last_error = ""
+    used_command = None
+    for command in commands:
+        used_command = command
+        try:
+            code, stdout, stderr = run_command(command, timeout=60 * 30)
+        except subprocess.TimeoutExpired:
+            last_error = "Demucs timed out after 30 minutes. Try a shorter file or GPU environment."
+            continue
+        if code == 0:
+            break
+        last_error = stderr[-4000:]
+    else:
+        return {"status": "failed", "stderr": last_error, "command": " ".join(used_command or [])}
+
+    discovered = {}
+    for stem_name in ("vocals", "drums", "bass", "other"):
+        matches = list(demucs_root.rglob(f"{stem_name}.wav"))
+        if matches:
+            target = stems_dir / f"{stem_name}.wav"
+            shutil.copy2(matches[0], target)
+            discovered[stem_name] = {"path": str(target), "exists": target.exists(), "size_bytes": target.stat().st_size if target.exists() else 0}
+
+    if not discovered:
+        return {"status": "failed", "reason": "Demucs finished but no stem WAV files were found.", "output_dir": str(demucs_root)}
+
+    return {
+        "status": "completed",
+        "model": model,
+        "command": " ".join(used_command or []),
+        "stems": discovered,
+        "note": "Infinity v7 real stem separation complete with Demucs.",
+    }
 
 
 def _safe_float(value):
