@@ -13,7 +13,7 @@ const NAV_MAP = {
 };
 
 function clickNav(label) {
-  const buttons = Array.from(document.querySelectorAll('nav button'));
+  const buttons = Array.from(document.querySelectorAll('.app nav button'));
   const target = buttons.find((button) => button.textContent?.toLowerCase().includes(label.toLowerCase()));
   if (target) {
     target.click();
@@ -29,7 +29,7 @@ function downloadPlaceholder(label) {
     product: 'Infinity',
     action: label,
     status: 'frontend-placeholder',
-    note: 'This confirms the button is wired. Real audio rendering/export will be connected in the backend phase.',
+    note: 'This confirms the button is wired. Real audio rendering/export is handled by the backend phase.',
     createdAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -52,16 +52,20 @@ function routeForLabel(label) {
     return { page: 'daw', message: 'Opening AI DAW / Sound Creator.' };
   }
   if (text.includes('generate') || text.includes('regenerate') || text.includes('sound') || text.includes('credits')) {
-    return { page: 'generator', message: 'Opening AI Sound Generator. Creation is currently a frontend demo until the backend is connected.' };
+    return { page: 'generator', message: 'Opening AI Sound Generator. Creation is currently a frontend demo until generation is connected.' };
   }
   if (text.includes('export') || text.includes('download') || text.includes('free tier') || text.includes('cloud') || text.includes('version')) {
-    return { page: 'exports', message: 'Opening Export System. A placeholder export may download for testing.' };
+    return { page: 'exports', message: 'Opening Export System.' };
   }
   if (text.includes('mix') || text.includes('master') || text.includes('upload') || text.includes('before') || text.includes('after') || text.includes('premium')) {
-    return { page: 'mix', audioMvp: text.includes('upload') || text.includes('start mix') || text.includes('mix & master'), message: 'Opening AI Mix & Master. Real audio upload/player/analyzer is available in Infinity v2.' };
+    return {
+      page: 'mix',
+      audioMvp: text.includes('upload') || text.includes('start mix') || text.includes('mix & master'),
+      message: 'Opening AI Mix & Master. Audio upload/player/analyzer is available.',
+    };
   }
   if (text.includes('preview') || text.includes('play')) {
-    return { page: null, message: 'Preview action is wired. Real audio playback comes after audio files are connected.' };
+    return { page: null, message: 'Preview action is wired. Real audio playback appears after audio is loaded.' };
   }
 
   return { page: null, message: `Action wired: ${label}` };
@@ -91,7 +95,7 @@ function Notice({ message, onClose }) {
         lineHeight: 1.45,
       }}
     >
-      <span style={{ color: '#55e9ff' }}>Ã¢Å“Â¦</span>
+      <span style={{ color: '#55e9ff' }}>i</span>
       <span>{message}</span>
       <button
         aria-label="Close notification"
@@ -106,7 +110,7 @@ function Notice({ message, onClose }) {
           fontSize: 18,
         }}
       >
-        Ãƒâ€”
+        x
       </button>
     </div>
   );
@@ -128,7 +132,11 @@ export default function InfinityActionRouter() {
       const button = event.target.closest?.('button');
       if (!button) return;
 
+      // Critical: never route clicks from login, account creation, dashboard, or project modals.
       if (button.closest('[data-infinity-auth="true"]')) return;
+
+      // Critical: route only the actual studio shell, never the auth dashboard.
+      if (!button.closest('.app')) return;
 
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
       if (!label) return;
@@ -172,6 +180,3 @@ export default function InfinityActionRouter() {
     </>
   );
 }
-
-
-
