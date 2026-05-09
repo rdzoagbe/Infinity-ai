@@ -62,6 +62,104 @@ function Section({ eyebrow, title, text, action, children }) {
 }
 function Feature({ icon: Icon, title, text }) { return <div className="feature"><Icon /><h3>{title}</h3><p>{text}</p></div>; }
 
+function slugify(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'infinity-sound';
+}
+
+function hashText(value) {
+  return value.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function makeSoundName(prompt, index = 0) {
+  const words = prompt.trim().split(/\s+/).filter(Boolean).slice(0, 3);
+  const base = words.length ? words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ') : 'Infinity Sound';
+  const suffixes = ['Layer', 'Pulse', 'Atmos Pad', 'Texture', 'Hit', 'Loop'];
+  return `${base} ${suffixes[index % suffixes.length]}`;
+}
+
+function writeString(view, offset, value) {
+  for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+}
+
+function createSyntheticWavBlob(seedText, intensity = 70, durationSeconds = 2.8) {
+  const sampleRate = 44100;
+  const channels = 1;
+  const seed = hashText(seedText);
+  const totalSamples = Math.floor(sampleRate * durationSeconds);
+  const bytesPerSample = 2;
+  const dataSize = totalSamples * channels * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const baseFrequency = 110 + (seed % 260);
+  const modulation = 0.15 + (Number(intensity) / 100) * 0.45;
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * bytesPerSample, true);
+  view.setUint16(32, channels * bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < totalSamples; i += 1) {
+    const t = i / sampleRate;
+    const envelope = Math.min(1, t * 6) * Math.min(1, (durationSeconds - t) * 3);
+    const tone = Math.sin(2 * Math.PI * baseFrequency * t);
+    const harmonic = Math.sin(2 * Math.PI * (baseFrequency * 1.5) * t + Math.sin(t * 2.1) * modulation);
+    const texture = Math.sin(2 * Math.PI * (baseFrequency / 2) * t) * 0.28;
+    const sample = (tone * 0.42 + harmonic * 0.28 + texture) * envelope * 0.55;
+    view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function previewGeneratedSound(sound, intensity) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = new AudioContext();
+  const seed = hashText(sound.prompt + sound.name);
+  const now = context.currentTime;
+  const output = context.createGain();
+  output.gain.setValueAtTime(0.0001, now);
+  output.gain.exponentialRampToValueAtTime(0.18, now + 0.04);
+  output.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
+  output.connect(context.destination);
+
+  [0, 7, 12].forEach((offset, index) => {
+    const oscillator = context.createOscillator();
+    const filter = context.createBiquadFilter();
+    oscillator.type = index === 0 ? 'sine' : index === 1 ? 'triangle' : 'sawtooth';
+    oscillator.frequency.value = 100 + (seed % 180) + offset * 8;
+    filter.type = 'lowpass';
+    filter.frequency.value = 480 + Number(intensity) * 18;
+    oscillator.connect(filter);
+    filter.connect(output);
+    oscillator.start(now + index * 0.03);
+    oscillator.stop(now + 1.85);
+  });
+
+  window.setTimeout(() => context.close?.(), 2200);
+}
+
+function downloadGeneratedSound(sound, intensity) {
+  const blob = createSyntheticWavBlob(`${sound.prompt}-${sound.name}`, intensity);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${slugify(sound.name)}.wav`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 function Overview({ go }) {
   return <div className="stack">
     <section className="hero">
@@ -97,7 +195,51 @@ function DawPage() {
 function GeneratorPage() {
   const [prompt, setPrompt] = useState(soundPrompts[0]);
   const [intensity, setIntensity] = useState(68);
-  return <div className="stack"><Section eyebrow="Section 3" title="AI Sound Generator" text="Type prompts to generate downloadable WAV loops, one-shots, textures, ambient layers, cinematic FX and synth presets." action={<button className="primary"><Sparkles size={16}/> Generate</button>}><div className="two"><Card><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} /><div className="chips">{soundPrompts.map(item => <button className="chip" onClick={() => setPrompt(item)} key={item}>{item}</button>)}</div><label className="range"><span>Intensity <b>{intensity}%</b></span><input type="range" min="0" max="100" value={intensity} onChange={(e) => setIntensity(e.target.value)} /></label><button className="secondary"><RefreshCw size={16}/> Regenerate variations</button></Card><div className="stack small">{['Infinity Choir Layer', 'War Drums Pulse', 'Desert Atmos Pad', 'Hybrid Bass Hit'].map((name, index) => <Card key={name}><h3>{name}</h3><p className="muted">{index % 2 ? 'Loop' : 'Texture'} · instant preview · WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button className="secondary"><Play size={15}/> Preview</button><button className="secondary"><Download size={15}/> Download WAV</button></div></Card>)}</div></div></Section></div>;
+  const [status, setStatus] = useState('Ready to generate prompt-based demo WAV sounds.');
+  const [variation, setVariation] = useState(0);
+  const [sounds, setSounds] = useState(() => ['Infinity Choir Layer', 'War Drums Pulse', 'Desert Atmos Pad', 'Hybrid Bass Hit'].map((name, index) => ({
+    id: `${slugify(name)}-${index}`,
+    name,
+    prompt: soundPrompts[index % soundPrompts.length],
+    type: index % 2 ? 'Loop' : 'Texture',
+  })));
+
+  const generate = () => {
+    const basePrompt = prompt.trim() || soundPrompts[0];
+    const next = Array.from({ length: 4 }).map((_, index) => ({
+      id: `${slugify(basePrompt)}-${Date.now()}-${index}`,
+      name: makeSoundName(basePrompt, index + variation),
+      prompt: basePrompt,
+      type: index % 2 ? 'Loop' : 'Texture',
+    }));
+    setSounds(next);
+    setStatus(`Generated ${next.length} demo sounds from: "${basePrompt}". Preview and WAV download are active.`);
+  };
+
+  const regenerate = () => {
+    setVariation((current) => current + 1);
+    const basePrompt = prompt.trim() || soundPrompts[0];
+    const next = Array.from({ length: 4 }).map((_, index) => ({
+      id: `${slugify(basePrompt)}-${Date.now()}-variation-${index}`,
+      name: `${makeSoundName(basePrompt, index + variation + 1)} v${variation + 2}`,
+      prompt: `${basePrompt} variation ${variation + 2}`,
+      type: index % 2 ? 'Loop' : 'Texture',
+    }));
+    setSounds(next);
+    setStatus(`Regenerated ${next.length} variations at ${intensity}% intensity.`);
+  };
+
+  const preview = (sound) => {
+    previewGeneratedSound(sound, intensity);
+    setStatus(`Previewing ${sound.name}. This is a browser-generated demo tone until the real AI generation model is connected.`);
+  };
+
+  const download = (sound) => {
+    downloadGeneratedSound(sound, intensity);
+    setStatus(`Downloaded ${sound.name} as a synthetic WAV demo.`);
+  };
+
+  return <div className="stack"><Section eyebrow="Section 3" title="AI Sound Generator" text="Type prompts to generate downloadable WAV loops, one-shots, textures, ambient layers, cinematic FX and synth presets." action={<button data-infinity-local-action="true" className="primary" onClick={generate}><Sparkles size={16}/> Generate</button>}><div className="two"><Card><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} /><div className="chips">{soundPrompts.map(item => <button data-infinity-local-action="true" className="chip" onClick={() => { setPrompt(item); setStatus(`Prompt selected: ${item}`); }} key={item}>{item}</button>)}</div><label className="range"><span>Intensity <b>{intensity}%</b></span><input type="range" min="0" max="100" value={intensity} onChange={(e) => setIntensity(e.target.value)} /></label><button data-infinity-local-action="true" className="secondary" onClick={regenerate}><RefreshCw size={16}/> Regenerate variations</button><p className="muted" style={{ marginTop: 14, lineHeight: 1.6 }}>{status}</p></Card><div className="stack small">{sounds.map((sound, index) => <Card key={sound.id}><h3>{sound.name}</h3><p className="muted">{sound.type} · instant preview · WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button data-infinity-local-action="true" className="secondary" onClick={() => preview(sound)}><Play size={15}/> Preview</button><button data-infinity-local-action="true" className="secondary" onClick={() => download(sound)}><Download size={15}/> Download WAV</button></div></Card>)}</div></div></Section></div>;
 }
 
 function ExportsPage() {
