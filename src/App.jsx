@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
 import AudioMVP from './AudioMVP.jsx';
-import AuthDashboard from './AuthDashboard.jsx';
+import AuthDashboard from './AuthDashboardV93.jsx';
 import BetaFeedback from './BetaFeedback.jsx';
 
 const NAV_MAP = {
@@ -26,7 +26,6 @@ function clickNav(label) {
 
 function routeForLabel(label) {
   const text = label.toLowerCase();
-
   if (text.includes('free tier')) return { page: 'exports' };
   if (text.includes('premium mastering')) return { page: 'mix', audioMvp: false };
   if (text.includes('upload audio') || text.includes('start mix') || text.includes('mix & master')) return { page: 'mix', audioMvp: true };
@@ -35,7 +34,6 @@ function routeForLabel(label) {
   if (text.includes('export system')) return { page: 'exports' };
   if (text.includes('ai daw')) return { page: 'daw' };
   if (text.includes('overview')) return { page: 'overview' };
-
   return null;
 }
 
@@ -46,34 +44,22 @@ export default function InfinityActionRouter() {
     const handler = (event) => {
       const button = event.target.closest?.('button');
       if (!button) return;
-
       if (button.closest('[data-infinity-auth="true"]')) return;
       if (button.closest('[data-infinity-local-action="true"]')) return;
       if (!button.closest('.app')) return;
-
-      // Let page-level controls behave naturally without global toast noise.
       if (button.closest('nav')) return;
       if (button.closest('.chips')) return;
       if (button.closest('.toggle')) return;
       if (button.closest('.range')) return;
       if (button.closest('.daw')) return;
       if (button.closest('.learning')) return;
-
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
       if (!label) return;
-
       const route = routeForLabel(label);
       if (!route) return;
-
-      if (route.audioMvp) {
-        window.setTimeout(() => setAudioMvpOpen(true), 120);
-      }
-
-      if (route.page) {
-        window.setTimeout(() => clickNav(NAV_MAP[route.page]), 0);
-      }
+      if (route.audioMvp) window.setTimeout(() => setAudioMvpOpen(true), 120);
+      if (route.page) window.setTimeout(() => clickNav(NAV_MAP[route.page]), 0);
     };
-
     document.addEventListener('click', handler, true);
     return () => document.removeEventListener('click', handler, true);
   }, []);
