@@ -53,7 +53,7 @@ function routeForLabel(label) {
     return { page: 'daw', message: 'Opening AI DAW / Sound Creator.' };
   }
   if (text.includes('generate') || text.includes('regenerate') || text.includes('sound') || text.includes('credits')) {
-    return { page: 'generator', message: 'Opening AI Sound Generator. Creation is currently a frontend demo until generation is connected.' };
+    return { page: 'generator', message: 'Opening AI Sound Generator.' };
   }
   if (text.includes('export') || text.includes('download') || text.includes('free tier') || text.includes('cloud') || text.includes('version')) {
     return { page: 'exports', message: 'Opening Export System.' };
@@ -126,6 +126,7 @@ export default function InfinityActionRouter() {
       if (!button) return;
 
       if (button.closest('[data-infinity-auth="true"]')) return;
+      if (button.closest('[data-infinity-local-action="true"]')) return;
       if (!button.closest('.app')) return;
 
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
