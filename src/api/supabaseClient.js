@@ -73,6 +73,59 @@ export async function createCloudProject(project) {
   return data;
 }
 
+export async function updateCloudProject(projectId, patch) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase
+    .from('projects')
+    .update(patch)
+    .eq('id', projectId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function appendCloudProjectFile(project, fileRecord) {
+  const files = Array.isArray(project.files) ? project.files : [];
+  return updateCloudProject(project.id, { files: [fileRecord, ...files], status: 'In production' });
+}
+
+export async function appendCloudProjectSound(project, soundRecord) {
+  const analysis = project.analysis && typeof project.analysis === 'object' ? project.analysis : {};
+  const generatedSounds = Array.isArray(analysis.generated_sounds) ? analysis.generated_sounds : [];
+  return updateCloudProject(project.id, {
+    analysis: { ...analysis, generated_sounds: [soundRecord, ...generatedSounds] },
+    status: 'In production',
+  });
+}
+
+export async function saveCloudProjectFeedback(project, feedbackRecord) {
+  const analysis = project.analysis && typeof project.analysis === 'object' ? project.analysis : {};
+  const feedback = Array.isArray(analysis.feedback) ? analysis.feedback : [];
+  return updateCloudProject(project.id, {
+    analysis: { ...analysis, feedback: [feedbackRecord, ...feedback] },
+  });
+}
+
+export async function uploadProjectAudioToSupabase(userId, projectId, file) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-');
+  const path = `${userId}/${projectId}/${Date.now()}-${safeName}`;
+  const { data, error } = await supabase.storage.from('infinity-audio').upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function createSignedAudioUrl(path, expiresIn = 60 * 60) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.storage.from('infinity-audio').createSignedUrl(path, expiresIn);
+  if (error) throw error;
+  return data?.signedUrl || '';
+}
+
 export async function deleteCloudProject(projectId) {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { error } = await supabase
