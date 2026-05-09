@@ -80,6 +80,16 @@ export async function separateStemsOnBackend(fileId) {
   return parseResponse(response, "Stem separation job failed");
 }
 
+export async function generateSoundOnBackend(prompt, intensity = 68, genre = "Cinematic", emotion = "Mystic") {
+  const response = await fetch(`${API_BASE}/api/v1/sound/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, intensity, genre, emotion }),
+  });
+
+  return parseResponse(response, "Sound generation failed");
+}
+
 export async function exportPackageOnBackend(fileId) {
   const response = await fetch(`${API_BASE}/api/v1/export/package`, {
     method: "POST",
