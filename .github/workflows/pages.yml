@@ -1,4 +1,4 @@
-name: Deploy AudioMagic to GitHub Pages
+name: Deploy Infinity to GitHub Pages
 
 on:
   push:
@@ -15,6 +15,10 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      VITE_INFINITY_API_URL: https://infinity-ai-production.up.railway.app
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
