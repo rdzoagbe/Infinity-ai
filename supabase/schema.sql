@@ -1,4 +1,4 @@
--- Infinity v8 Supabase schema
+-- Infinity v9 Supabase schema
 -- Run this in Supabase SQL Editor.
 
 create extension if not exists "uuid-ossp";
@@ -54,7 +54,45 @@ create trigger projects_set_updated_at
 before update on public.projects
 for each row execute function public.set_updated_at();
 
--- Optional storage bucket for future audio upload persistence.
+-- Private storage bucket for Infinity audio uploads and generated assets.
 insert into storage.buckets (id, name, public)
 values ('infinity-audio', 'infinity-audio', false)
 on conflict (id) do nothing;
+
+-- Storage policies: each user can only access files inside their own top-level folder.
+-- Expected path: {auth.uid()}/{project_id}/{filename}
+drop policy if exists "Infinity users can upload own audio" on storage.objects;
+create policy "Infinity users can upload own audio"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'infinity-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "Infinity users can read own audio" on storage.objects;
+create policy "Infinity users can read own audio"
+  on storage.objects for select
+  using (
+    bucket_id = 'infinity-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "Infinity users can update own audio" on storage.objects;
+create policy "Infinity users can update own audio"
+  on storage.objects for update
+  using (
+    bucket_id = 'infinity-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  )
+  with check (
+    bucket_id = 'infinity-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "Infinity users can delete own audio" on storage.objects;
+create policy "Infinity users can delete own audio"
+  on storage.objects for delete
+  using (
+    bucket_id = 'infinity-audio'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
