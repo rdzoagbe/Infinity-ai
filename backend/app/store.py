@@ -5,6 +5,7 @@ from .models import Job, JobStatus, JobType
 JOBS: dict[str, Job] = {}
 PROJECTS: dict[str, dict] = {}
 FILES: dict[str, dict] = {}
+SOUND_ASSETS: dict[str, dict] = {}
 
 
 def make_id(prefix: str) -> str:
