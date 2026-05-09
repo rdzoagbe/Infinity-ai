@@ -122,32 +122,57 @@ function createSyntheticWavBlob(seedText, intensity = 70, durationSeconds = 2.8)
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-function previewGeneratedSound(sound, intensity) {
+async function previewGeneratedSound(sound, intensity) {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContext) return;
-  const context = new AudioContext();
-  const seed = hashText(sound.prompt + sound.name);
-  const now = context.currentTime;
-  const output = context.createGain();
-  output.gain.setValueAtTime(0.0001, now);
-  output.gain.exponentialRampToValueAtTime(0.18, now + 0.04);
-  output.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
-  output.connect(context.destination);
+  if (!AudioContext) return false;
 
-  [0, 7, 12].forEach((offset, index) => {
-    const oscillator = context.createOscillator();
-    const filter = context.createBiquadFilter();
-    oscillator.type = index === 0 ? 'sine' : index === 1 ? 'triangle' : 'sawtooth';
-    oscillator.frequency.value = 100 + (seed % 180) + offset * 8;
-    filter.type = 'lowpass';
-    filter.frequency.value = 480 + Number(intensity) * 18;
-    oscillator.connect(filter);
-    filter.connect(output);
-    oscillator.start(now + index * 0.03);
-    oscillator.stop(now + 1.85);
-  });
+  try {
+    const context = new AudioContext();
+    if (context.state === 'suspended') await context.resume();
 
-  window.setTimeout(() => context.close?.(), 2200);
+    const seed = hashText(sound.prompt + sound.name);
+    const now = context.currentTime;
+    const output = context.createGain();
+    const delay = context.createDelay();
+    const feedback = context.createGain();
+    const master = context.createGain();
+
+    output.gain.setValueAtTime(0.0001, now);
+    output.gain.exponentialRampToValueAtTime(0.28, now + 0.04);
+    output.gain.exponentialRampToValueAtTime(0.0001, now + 2.15);
+
+    delay.delayTime.value = 0.18;
+    feedback.gain.value = 0.22;
+    master.gain.value = 0.75;
+
+    output.connect(master);
+    output.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(master);
+    master.connect(context.destination);
+
+    [0, 7, 12, 19].forEach((offset, index) => {
+      const oscillator = context.createOscillator();
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      oscillator.type = index === 0 ? 'sine' : index === 1 ? 'triangle' : index === 2 ? 'sawtooth' : 'square';
+      oscillator.frequency.value = 95 + (seed % 180) + offset * 7;
+      filter.type = 'lowpass';
+      filter.frequency.value = 520 + Number(intensity) * 22;
+      gain.gain.value = index === 3 ? 0.045 : 0.12;
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(output);
+      oscillator.start(now + index * 0.025);
+      oscillator.stop(now + 2.1);
+    });
+
+    window.setTimeout(() => context.close?.(), 2600);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function downloadGeneratedSound(sound, intensity) {
@@ -195,8 +220,9 @@ function DawPage() {
 function GeneratorPage() {
   const [prompt, setPrompt] = useState(soundPrompts[0]);
   const [intensity, setIntensity] = useState(68);
-  const [status, setStatus] = useState('Ready to generate prompt-based demo WAV sounds.');
+  const [status, setStatus] = useState('Ready. Click Generate to create and hear a demo sound.');
   const [variation, setVariation] = useState(0);
+  const [activeSoundId, setActiveSoundId] = useState('');
   const [sounds, setSounds] = useState(() => ['Infinity Choir Layer', 'War Drums Pulse', 'Desert Atmos Pad', 'Hybrid Bass Hit'].map((name, index) => ({
     id: `${slugify(name)}-${index}`,
     name,
@@ -204,7 +230,7 @@ function GeneratorPage() {
     type: index % 2 ? 'Loop' : 'Texture',
   })));
 
-  const generate = () => {
+  const generate = async () => {
     const basePrompt = prompt.trim() || soundPrompts[0];
     const next = Array.from({ length: 4 }).map((_, index) => ({
       id: `${slugify(basePrompt)}-${Date.now()}-${index}`,
@@ -213,33 +239,40 @@ function GeneratorPage() {
       type: index % 2 ? 'Loop' : 'Texture',
     }));
     setSounds(next);
-    setStatus(`Generated ${next.length} demo sounds from: "${basePrompt}". Preview and WAV download are active.`);
+    setActiveSoundId(next[0].id);
+    const ok = await previewGeneratedSound(next[0], intensity);
+    setStatus(ok ? `Generated and previewing ${next[0].name}. Use Preview for each variation or Download WAV.` : 'Generated sounds, but browser audio was blocked. Click Preview on a sound card.');
   };
 
-  const regenerate = () => {
-    setVariation((current) => current + 1);
+  const regenerate = async () => {
+    const nextVariation = variation + 1;
+    setVariation(nextVariation);
     const basePrompt = prompt.trim() || soundPrompts[0];
     const next = Array.from({ length: 4 }).map((_, index) => ({
       id: `${slugify(basePrompt)}-${Date.now()}-variation-${index}`,
-      name: `${makeSoundName(basePrompt, index + variation + 1)} v${variation + 2}`,
-      prompt: `${basePrompt} variation ${variation + 2}`,
+      name: `${makeSoundName(basePrompt, index + nextVariation)} v${nextVariation + 1}`,
+      prompt: `${basePrompt} variation ${nextVariation + 1}`,
       type: index % 2 ? 'Loop' : 'Texture',
     }));
     setSounds(next);
-    setStatus(`Regenerated ${next.length} variations at ${intensity}% intensity.`);
+    setActiveSoundId(next[0].id);
+    const ok = await previewGeneratedSound(next[0], intensity);
+    setStatus(ok ? `Regenerated and previewing ${next[0].name} at ${intensity}% intensity.` : 'Regenerated variations, but browser audio was blocked. Click Preview on a sound card.');
   };
 
-  const preview = (sound) => {
-    previewGeneratedSound(sound, intensity);
-    setStatus(`Previewing ${sound.name}. This is a browser-generated demo tone until the real AI generation model is connected.`);
+  const preview = async (sound) => {
+    setActiveSoundId(sound.id);
+    const ok = await previewGeneratedSound(sound, intensity);
+    setStatus(ok ? `Previewing ${sound.name}.` : 'Browser audio is blocked. Click again, check volume, or allow audio for this site.');
   };
 
   const download = (sound) => {
     downloadGeneratedSound(sound, intensity);
+    setActiveSoundId(sound.id);
     setStatus(`Downloaded ${sound.name} as a synthetic WAV demo.`);
   };
 
-  return <div className="stack"><Section eyebrow="Section 3" title="AI Sound Generator" text="Type prompts to generate downloadable WAV loops, one-shots, textures, ambient layers, cinematic FX and synth presets." action={<button data-infinity-local-action="true" className="primary" onClick={generate}><Sparkles size={16}/> Generate</button>}><div className="two"><Card><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} /><div className="chips">{soundPrompts.map(item => <button data-infinity-local-action="true" className="chip" onClick={() => { setPrompt(item); setStatus(`Prompt selected: ${item}`); }} key={item}>{item}</button>)}</div><label className="range"><span>Intensity <b>{intensity}%</b></span><input type="range" min="0" max="100" value={intensity} onChange={(e) => setIntensity(e.target.value)} /></label><button data-infinity-local-action="true" className="secondary" onClick={regenerate}><RefreshCw size={16}/> Regenerate variations</button><p className="muted" style={{ marginTop: 14, lineHeight: 1.6 }}>{status}</p></Card><div className="stack small">{sounds.map((sound, index) => <Card key={sound.id}><h3>{sound.name}</h3><p className="muted">{sound.type} · instant preview · WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button data-infinity-local-action="true" className="secondary" onClick={() => preview(sound)}><Play size={15}/> Preview</button><button data-infinity-local-action="true" className="secondary" onClick={() => download(sound)}><Download size={15}/> Download WAV</button></div></Card>)}</div></div></Section></div>;
+  return <div className="stack"><Section eyebrow="Section 3" title="AI Sound Generator" text="Type prompts to generate downloadable WAV loops, one-shots, textures, ambient layers, cinematic FX and synth presets." action={<button data-infinity-local-action="true" className="primary" onClick={generate}><Sparkles size={16}/> Generate & Preview</button>}><div className="two"><Card><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} /><div className="chips">{soundPrompts.map(item => <button data-infinity-local-action="true" className="chip" onClick={() => { setPrompt(item); setStatus(`Prompt selected: ${item}`); }} key={item}>{item}</button>)}</div><label className="range"><span>Intensity <b>{intensity}%</b></span><input type="range" min="0" max="100" value={intensity} onChange={(e) => setIntensity(e.target.value)} /></label><button data-infinity-local-action="true" className="secondary" onClick={regenerate}><RefreshCw size={16}/> Regenerate & Preview</button><p className="muted" style={{ marginTop: 14, lineHeight: 1.6 }}>{status}</p></Card><div className="stack small">{sounds.map((sound, index) => <Card key={sound.id} className={activeSoundId === sound.id ? 'active-sound' : ''}><h3>{sound.name}</h3><p className="muted">{sound.type} · instant preview · WAV export</p><Bars tone={index % 2 ? 'magenta' : 'cyan'} count={20}/><div className="actions"><button data-infinity-local-action="true" className="secondary" onClick={() => preview(sound)}><Play size={15}/> Preview</button><button data-infinity-local-action="true" className="secondary" onClick={() => download(sound)}><Download size={15}/> Download WAV</button></div></Card>)}</div></div></Section></div>;
 }
 
 function ExportsPage() {
