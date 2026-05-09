@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import shutil
+import struct
 import subprocess
 import sys
+import wave
 from pathlib import Path
 from mutagen import File as MutagenFile
 
@@ -126,6 +129,53 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     else:
         outputs["mp3_error"] = mp3_stderr[-2000:]
     return {"status": "completed", "mode": mode, "strength": safe_strength, "filter_chain": audio_filter, "outputs": outputs}
+
+
+def generate_prompt_sound(output_dir: Path, asset_id: str, prompt: str, intensity: int = 68, genre: str = "Cinematic", emotion: str = "Mystic") -> dict:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_intensity = max(0, min(100, int(intensity)))
+    seed = sum(ord(char) for char in f"{prompt}-{genre}-{emotion}")
+    sample_rate = 44100
+    duration = 4.0
+    total_samples = int(sample_rate * duration)
+    base_freq = 90 + (seed % 280)
+    fifth = base_freq * 1.5
+    octave = base_freq * 2
+    lfo_rate = 0.12 + (safe_intensity / 100) * 0.7
+    wav_path = output_dir / f"{asset_id}.wav"
+
+    with wave.open(str(wav_path), "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        for i in range(total_samples):
+            t = i / sample_rate
+            attack = min(1.0, t / 0.35)
+            release = min(1.0, max(0.0, (duration - t) / 0.9))
+            envelope = attack * release
+            lfo = 0.65 + 0.35 * math.sin(2 * math.pi * lfo_rate * t)
+            pad = math.sin(2 * math.pi * base_freq * t)
+            harmonic = math.sin(2 * math.pi * fifth * t + math.sin(2 * math.pi * 0.21 * t)) * 0.45
+            shimmer = math.sin(2 * math.pi * octave * t) * 0.18
+            pulse = math.sin(2 * math.pi * (base_freq / 4) * t) * (safe_intensity / 100) * 0.25
+            left = (pad * 0.42 + harmonic * 0.34 + shimmer + pulse) * envelope * lfo * 0.55
+            right = (pad * 0.38 + harmonic * 0.31 + shimmer * 0.7 - pulse) * envelope * (1.05 - (lfo * 0.2)) * 0.55
+            wav.writeframes(struct.pack("<hh", int(max(-1, min(1, left)) * 32767), int(max(-1, min(1, right)) * 32767)))
+
+    return {
+        "asset_id": asset_id,
+        "prompt": prompt,
+        "genre": genre,
+        "emotion": emotion,
+        "intensity": safe_intensity,
+        "duration_seconds": duration,
+        "sample_rate": sample_rate,
+        "path": str(wav_path),
+        "filename": wav_path.name,
+        "download_url": f"/api/v1/sound/assets/{asset_id}/download",
+        "preview_url": f"/api/v1/sound/assets/{asset_id}/download",
+        "note": "Backend-generated WAV using deterministic prompt synthesis. Replace with GPU model later.",
+    }
 
 
 def separate_stems_with_demucs(input_path: Path, stems_dir: Path, model: str = "htdemucs") -> dict:
