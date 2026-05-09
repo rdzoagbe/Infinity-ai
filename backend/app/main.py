@@ -6,14 +6,14 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .audio import full_audio_analysis, has_demucs, has_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
+from .audio import full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
 from .models import AnalyzeRequest, JobType, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
-from .store import FILES, JOBS, PROJECTS, complete_job, create_job, make_id
+from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, make_id
 
 settings = get_settings()
 
-app = FastAPI(title="Infinity AI Audio Backend", version="7.0.0", description="FastAPI backend for Infinity AI music production.")
+app = FastAPI(title="Infinity AI Audio Backend", version="8.2.0", description="FastAPI backend for Infinity AI music production.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +31,12 @@ def file_workspace(file_id: str) -> Path:
     return root
 
 
+def sound_workspace() -> Path:
+    root = settings.storage_path / "generated-sounds"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def get_file_or_404(file_id: str) -> dict:
     file_data = FILES.get(file_id)
     if not file_data:
@@ -38,9 +44,16 @@ def get_file_or_404(file_id: str) -> dict:
     return file_data
 
 
+def get_sound_or_404(asset_id: str) -> dict:
+    asset = SOUND_ASSETS.get(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Sound asset not found")
+    return asset
+
+
 @app.get("/")
 def root():
-    return {"name": "Infinity AI Audio Backend", "version": "7.0.0", "status": "online", "ffmpeg_available": has_ffmpeg(), "demucs_available": has_demucs(), "docs": "/docs"}
+    return {"name": "Infinity AI Audio Backend", "version": "8.2.0", "status": "online", "ffmpeg_available": has_ffmpeg(), "demucs_available": has_demucs(), "docs": "/docs"}
 
 
 @app.get("/health")
@@ -97,14 +110,14 @@ def analyze_audio(payload: AnalyzeRequest):
     result = full_audio_analysis(file_data["filename"], payload.file_id, stored_path, metadata)
     analysis_path = Path(file_data["workspace"]) / "analysis" / "analysis.json"
     analysis_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    return complete_job(job, result=result, message="Infinity v7 analysis complete")
+    return complete_job(job, result=result, message="Infinity analysis complete")
 
 
 @app.post("/api/v1/audio/mix")
 def mix_audio(payload: ProcessRequest):
     get_file_or_404(payload.file_id)
     job = create_job(JobType.mix, message="Mix job started")
-    result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "steps": ["vocal cleanup placeholder", "frequency balance placeholder", "compression placeholder", "stereo image placeholder"], "note": "Infinity v7 keeps mix as structured placeholder. Real multitrack processing comes after stem separation."}
+    result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "steps": ["vocal cleanup placeholder", "frequency balance placeholder", "compression placeholder", "stereo image placeholder"], "note": "Structured mix assistant complete. Real multitrack DSP comes after stem separation."}
     return complete_job(job, result, "Structured mix job complete")
 
 
@@ -118,7 +131,7 @@ def master_audio(payload: ProcessRequest):
     result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": "-14 integrated / -1.5 dBTP", "render": render, "downloads": {}}
     if render.get("status") == "completed":
         result["downloads"] = {"master_wav": f"/api/v1/files/{payload.file_id}/download/master-wav", "master_mp3": f"/api/v1/files/{payload.file_id}/download/master-mp3"}
-    return complete_job(job, result, "Infinity v7 mastering complete" if render.get("status") == "completed" else "Mastering skipped or failed")
+    return complete_job(job, result, "Infinity mastering complete" if render.get("status") == "completed" else "Mastering skipped or failed")
 
 
 @app.post("/api/v1/audio/separate-stems")
@@ -132,15 +145,31 @@ def separate_stems(payload: AnalyzeRequest):
     if separation.get("status") == "completed":
         for stem_name in separation.get("stems", {}).keys():
             downloads[stem_name] = f"/api/v1/files/{payload.file_id}/download/stem-{stem_name}"
-    result = {"file_id": payload.file_id, "separation": separation, "downloads": downloads, "note": "Infinity v7 stem separation. Real stems require Demucs installed in backend environment."}
-    return complete_job(job, result, "Infinity v7 stem separation complete" if separation.get("status") == "completed" else "Stem separation skipped or failed")
+    result = {"file_id": payload.file_id, "separation": separation, "downloads": downloads, "note": "Real stems require Demucs installed in backend environment."}
+    return complete_job(job, result, "Stem separation complete" if separation.get("status") == "completed" else "Stem separation skipped or failed")
 
 
 @app.post("/api/v1/sound/generate")
 def generate_sound(payload: SoundGenerateRequest):
-    job = create_job(JobType.generate_sound, message="Sound generation queued")
-    result = {"prompt": payload.prompt, "intensity": payload.intensity, "genre": payload.genre, "emotion": payload.emotion, "assets": [], "note": "Placeholder generation. Real audio generation model/API comes later."}
-    return complete_job(job, result, "Placeholder sound generation complete")
+    job = create_job(JobType.generate_sound, message="Generating sound")
+    assets = []
+    base_prompt = payload.prompt.strip() or "infinity generated sound"
+    for index in range(4):
+        asset_id = make_id("sound")
+        asset = generate_prompt_sound(sound_workspace(), asset_id, f"{base_prompt} variation {index + 1}", payload.intensity, payload.genre, payload.emotion)
+        SOUND_ASSETS[asset_id] = asset
+        assets.append(asset)
+    result = {"prompt": payload.prompt, "intensity": payload.intensity, "genre": payload.genre, "emotion": payload.emotion, "assets": assets, "note": "Generated real downloadable WAV assets with deterministic backend synthesis."}
+    return complete_job(job, result, "Sound generation complete")
+
+
+@app.get("/api/v1/sound/assets/{asset_id}/download")
+def download_sound_asset(asset_id: str):
+    asset = get_sound_or_404(asset_id)
+    path = Path(asset["path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Generated sound file is missing")
+    return FileResponse(path, media_type="audio/wav", filename=asset.get("filename") or f"{asset_id}.wav")
 
 
 @app.post("/api/v1/export/package")
@@ -157,7 +186,7 @@ def export_package(payload: AnalyzeRequest):
             downloads[f"stem_{stem}"] = f"/api/v1/files/{payload.file_id}/download/stem-{stem}"
     job = create_job(JobType.export, message="Export package queued")
     result = {"file_id": payload.file_id, "formats": ["original", "analysis", "master-wav-if-rendered", "master-mp3-if-rendered", "stems-if-rendered"], "downloads": downloads}
-    return complete_job(job, result, "Infinity v7 export package ready")
+    return complete_job(job, result, "Infinity export package ready")
 
 
 @app.get("/api/v1/files/{file_id}/download/{asset_type}")
