@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CloudUpload, Download, FileAudio, Play, X } from 'lucide-react';
+import { CloudUpload, Download, FileAudio, X } from 'lucide-react';
 import {
   API_BASE,
   backendUrl,
@@ -15,16 +15,90 @@ import {
 const panel = { position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,.68)', overflowY: 'auto', padding: 18 };
 const card = { maxWidth: 1220, margin: '24px auto', borderRadius: 28, padding: 22, color: '#f5f8ff', background: 'rgba(17,20,33,.97)', border: '1px solid rgba(255,255,255,.08)', boxShadow: '0 22px 80px rgba(0,0,0,.42),0 0 42px rgba(85,233,255,.12)' };
 
-function emitProjectFile(fileRecord) { window.dispatchEvent(new CustomEvent('infinity:project-file', { detail: fileRecord })); }
-function formatBytes(bytes) { if (!bytes) return '0 B'; const units = ['B', 'KB', 'MB', 'GB']; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`; }
-function formatTime(seconds) { if (!Number.isFinite(seconds) || seconds <= 0) return '00:00'; const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; }
-function fallbackAnalysis(file) { const seed = file.name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0); const keys = ['A minor', 'C minor', 'D minor', 'F# minor', 'G major', 'Eb minor']; const genres = ['Afrobeat', 'Trap Soul', 'Cinematic', 'Drill', 'House', 'Gospel', 'Experimental']; return { duration: 0, sampleRate: 'Pending backend', channels: file.name.toLowerCase().endsWith('.zip') ? 'Stem package' : 'Pending decode', peak: 'Pending decode', rms: 'Pending decode', bpm: 78 + (seed % 62), key: keys[seed % keys.length], genre: genres[seed % genres.length], vocalTone: seed % 2 ? 'Warm / Airy' : 'Clean / Forward', loudness: '-10.2 LUFS target', status: file.name.toLowerCase().endsWith('.zip') ? 'ZIP detected; backend stem extraction required' : 'Metadata ready' }; }
-function waveformFromBuffer(audioBuffer, points = 96) { const data = audioBuffer.getChannelData(0); const blockSize = Math.max(1, Math.floor(data.length / points)); const values = []; for (let i = 0; i < points; i += 1) { let sum = 0; for (let j = 0; j < blockSize; j += 1) sum += Math.abs(data[(i * blockSize) + j] || 0); values.push(sum / blockSize); } const max = Math.max(...values, 0.01); return values.map((value) => value / max); }
-function downloadJson(fileName, payload) { const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url); }
-function Waveform({ values, tone = '#55e9ff' }) { const safe = values.length ? values : Array.from({ length: 96 }).map((_, index) => Math.abs(Math.sin(index * 0.42)) * 0.8 + 0.08); return <div style={{ height: 150, display: 'flex', alignItems: 'flex-end', gap: 4, padding: '18px 0' }}>{safe.map((value, index) => <span key={index} style={{ flex: 1, minWidth: 2, borderRadius: 999, height: `${Math.max(8, value * 100)}%`, background: `linear-gradient(180deg,${tone},rgba(85,233,255,.20))`, boxShadow: '0 0 14px rgba(85,233,255,.22)' }} />)}</div>; }
-function BackendBadge({ online }) { const color = online ? '#57f09c' : '#ffcf66'; const label = online ? 'Backend connected' : 'Backend offline / browser mode'; return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '8px 12px', border: `1px solid ${online ? 'rgba(87,240,156,.35)' : 'rgba(255,207,102,.35)'}`, background: online ? 'rgba(87,240,156,.1)' : 'rgba(255,207,102,.1)', color, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', fontSize: 12 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: color }} />{label}</span>; }
-function StepPill({ state, label }) { const color = state === 'done' ? '#57f09c' : state === 'active' ? '#55e9ff' : state === 'error' ? '#ff6b6b' : 'rgba(245,248,255,.38)'; return <span style={{ border: `1px solid ${color}66`, color, background: `${color}18`, borderRadius: 999, padding: '8px 10px', fontWeight: 800, fontSize: 12 }}>{label}</span>; }
-function JobCard({ title, job }) { const isCompleted = job?.status === 'completed'; return <div style={{ border: '1px solid rgba(255,255,255,.08)', background: isCompleted ? 'rgba(87,240,156,.06)' : 'rgba(255,255,255,.04)', borderRadius: 18, padding: 14 }}><div style={{ color: 'rgba(245,248,255,.58)', fontSize: 13 }}>{title}</div>{job ? <><strong style={{ display: 'block', marginTop: 6 }}>{job.status || 'completed'}</strong><p style={{ color: 'rgba(245,248,255,.68)', lineHeight: 1.5, margin: '8px 0 0' }}>{job.message || 'Job response received.'}</p>{job.result?.render?.steps ? <ul style={{ color: 'rgba(245,248,255,.68)', paddingLeft: 18 }}>{job.result.render.steps.slice(0, 4).map((step) => <li key={step}>{step}</li>)}</ul> : null}</> : <strong style={{ display: 'block', marginTop: 6 }}>Not started</strong>}</div>; }
+function emitProjectFile(fileRecord) {
+  window.dispatchEvent(new CustomEvent('infinity:project-file', { detail: fileRecord }));
+}
+
+function emitProjectMaster(masterRecord) {
+  window.dispatchEvent(new CustomEvent('infinity:project-sound', { detail: masterRecord }));
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function fallbackAnalysis(file) {
+  const seed = file.name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const keys = ['A minor', 'C minor', 'D minor', 'F# minor', 'G major', 'Eb minor'];
+  const genres = ['Afrobeat', 'Trap Soul', 'Cinematic', 'Drill', 'House', 'Gospel', 'Experimental'];
+  return {
+    duration: 0,
+    sampleRate: 'Pending backend',
+    channels: file.name.toLowerCase().endsWith('.zip') ? 'Stem package' : 'Pending decode',
+    peak: 'Pending decode',
+    rms: 'Pending decode',
+    bpm: 78 + (seed % 62),
+    key: keys[seed % keys.length],
+    genre: genres[seed % genres.length],
+    vocalTone: seed % 2 ? 'Warm / Airy' : 'Clean / Forward',
+    loudness: '-10.2 LUFS target',
+    status: file.name.toLowerCase().endsWith('.zip') ? 'ZIP detected; backend stem extraction required' : 'Metadata ready',
+  };
+}
+
+function waveformFromBuffer(audioBuffer, points = 96) {
+  const data = audioBuffer.getChannelData(0);
+  const blockSize = Math.max(1, Math.floor(data.length / points));
+  const values = [];
+  for (let i = 0; i < points; i += 1) {
+    let sum = 0;
+    for (let j = 0; j < blockSize; j += 1) sum += Math.abs(data[(i * blockSize) + j] || 0);
+    values.push(sum / blockSize);
+  }
+  const max = Math.max(...values, 0.01);
+  return values.map((value) => value / max);
+}
+
+function downloadJson(fileName, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function Waveform({ values, tone = '#55e9ff' }) {
+  const safe = values.length ? values : Array.from({ length: 96 }).map((_, index) => Math.abs(Math.sin(index * 0.42)) * 0.8 + 0.08);
+  return <div style={{ height: 150, display: 'flex', alignItems: 'flex-end', gap: 4, padding: '18px 0' }}>{safe.map((value, index) => <span key={index} style={{ flex: 1, minWidth: 2, borderRadius: 999, height: `${Math.max(8, value * 100)}%`, background: `linear-gradient(180deg,${tone},rgba(85,233,255,.20))`, boxShadow: '0 0 14px rgba(85,233,255,.22)' }} />)}</div>;
+}
+
+function BackendBadge({ online }) {
+  const color = online ? '#57f09c' : '#ffcf66';
+  const label = online ? 'Backend connected' : 'Backend offline / browser mode';
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '8px 12px', border: `1px solid ${online ? 'rgba(87,240,156,.35)' : 'rgba(255,207,102,.35)'}`, background: online ? 'rgba(87,240,156,.1)' : 'rgba(255,207,102,.1)', color, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', fontSize: 12 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: color }} />{label}</span>;
+}
+
+function StepPill({ state, label }) {
+  const color = state === 'done' ? '#57f09c' : state === 'active' ? '#55e9ff' : state === 'error' ? '#ff6b6b' : 'rgba(245,248,255,.38)';
+  return <span style={{ border: `1px solid ${color}66`, color, background: `${color}18`, borderRadius: 999, padding: '8px 10px', fontWeight: 800, fontSize: 12 }}>{label}</span>;
+}
+
+function JobCard({ title, job }) {
+  const isCompleted = job?.status === 'completed';
+  return <div style={{ border: '1px solid rgba(255,255,255,.08)', background: isCompleted ? 'rgba(87,240,156,.06)' : 'rgba(255,255,255,.04)', borderRadius: 18, padding: 14 }}><div style={{ color: 'rgba(245,248,255,.58)', fontSize: 13 }}>{title}</div>{job ? <><strong style={{ display: 'block', marginTop: 6 }}>{job.status || 'completed'}</strong><p style={{ color: 'rgba(245,248,255,.68)', lineHeight: 1.5, margin: '8px 0 0' }}>{job.message || 'Job response received.'}</p>{job.result?.render?.steps ? <ul style={{ color: 'rgba(245,248,255,.68)', paddingLeft: 18 }}>{job.result.render.steps.slice(0, 4).map((step) => <li key={step}>{step}</li>)}</ul> : null}</> : <strong style={{ display: 'block', marginTop: 6 }}>Not started</strong>}</div>;
+}
 
 export default function AudioMVP({ open, onClose }) {
   const [backendOnline, setBackendOnline] = useState(false);
@@ -46,33 +120,170 @@ export default function AudioMVP({ open, onClose }) {
   const [previewMode, setPreviewMode] = useState('original');
   const [error, setError] = useState('');
 
-  useEffect(() => { if (!open) return; let active = true; checkBackendHealth().then((result) => { if (!active) return; setBackendOnline(true); setBackendMessage(`Connected to ${API_BASE} v${result.version || 'backend'} (${result.environment || 'production'})`); }).catch(() => { if (!active) return; setBackendOnline(false); setBackendMessage(`Backend not reachable at ${API_BASE}. Local browser preview still works.`); }); return () => { active = false; }; }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    checkBackendHealth().then((result) => {
+      if (!active) return;
+      setBackendOnline(true);
+      setBackendMessage(`Connected to ${API_BASE} v${result.version || 'backend'} (${result.environment || 'production'})`);
+    }).catch(() => {
+      if (!active) return;
+      setBackendOnline(false);
+      setBackendMessage(`Backend not reachable at ${API_BASE}. Local browser preview still works.`);
+    });
+    return () => { active = false; };
+  }, [open]);
+
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
+
   const fileId = backendFile?.file_id || backendFile?.file?.file_id || null;
-  const backendResultSummary = useMemo(() => { const result = backendAnalysisJob?.result || {}; return { bpm: result.estimated_bpm, key: result.estimated_key, genre: result.estimated_genre, vocalTone: result.vocal_tone, loudness: result.loudness_target, readiness: result.readiness, note: result.note, quality: result.quality_flags || {} }; }, [backendAnalysisJob]);
+  const backendResultSummary = useMemo(() => {
+    const result = backendAnalysisJob?.result || {};
+    return { bpm: result.estimated_bpm, key: result.estimated_key, genre: result.estimated_genre, vocalTone: result.vocal_tone, loudness: result.loudness_target, readiness: result.readiness, note: result.note, quality: result.quality_flags || {} };
+  }, [backendAnalysisJob]);
   const downloads = masterJob?.result?.downloads || {};
   const masteredPreviewUrl = downloads.master_preview ? backendUrl(downloads.master_preview) : '';
   const masteredMp3Url = downloads.master_mp3 ? backendUrl(downloads.master_mp3) : '';
   const masteredWavUrl = downloads.master_wav ? backendUrl(downloads.master_wav) : '';
   const previewSource = previewMode === 'master' && (masteredPreviewUrl || masteredMp3Url) ? (masteredPreviewUrl || masteredMp3Url) : audioUrl;
+
   if (!open) return null;
 
   const decodeInBrowser = async (file) => {
     if (file.name.toLowerCase().endsWith('.zip')) { setMessage('STEM ZIP detected. Backend extraction will process this package.'); return; }
-    try { const buffer = await file.arrayBuffer(); const AudioContext = window.AudioContext || window.webkitAudioContext; if (!AudioContext) return; const context = new AudioContext(); const decoded = await context.decodeAudioData(buffer.slice(0)); const data = decoded.getChannelData(0); let peak = 0; let sum = 0; for (let i = 0; i < data.length; i += 1) { const abs = Math.abs(data[i]); peak = Math.max(peak, abs); sum += data[i] * data[i]; } const rms = Math.sqrt(sum / data.length); const seed = file.name.length + Math.floor(decoded.duration); const keys = ['A minor', 'C minor', 'D minor', 'F# minor', 'G major', 'Eb minor']; const genres = ['Afrobeat', 'Trap Soul', 'Cinematic', 'Drill', 'House', 'Gospel', 'Experimental']; setWaveform(waveformFromBuffer(decoded)); setAnalysis({ duration: decoded.duration, sampleRate: `${decoded.sampleRate.toLocaleString()} Hz`, channels: decoded.numberOfChannels, peak: `${Math.round(peak * 100)}%`, rms: `${Math.round(rms * 100)}%`, bpm: 74 + (seed % 70), key: keys[seed % keys.length], genre: genres[seed % genres.length], vocalTone: seed % 2 ? 'Warm / Airy' : 'Clean / Forward', loudness: '-9.5 LUFS target', status: 'Browser analysis complete' }); await context.close?.(); } catch { setMessage('File loaded, but browser decoding was limited. Backend processing may still handle this file.'); }
+    try {
+      const buffer = await file.arrayBuffer();
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const context = new AudioContext();
+      const decoded = await context.decodeAudioData(buffer.slice(0));
+      const data = decoded.getChannelData(0);
+      let peak = 0;
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        const abs = Math.abs(data[i]);
+        peak = Math.max(peak, abs);
+        sum += data[i] * data[i];
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const seed = file.name.length + Math.floor(decoded.duration);
+      const keys = ['A minor', 'C minor', 'D minor', 'F# minor', 'G major', 'Eb minor'];
+      const genres = ['Afrobeat', 'Trap Soul', 'Cinematic', 'Drill', 'House', 'Gospel', 'Experimental'];
+      setWaveform(waveformFromBuffer(decoded));
+      setAnalysis({ duration: decoded.duration, sampleRate: `${decoded.sampleRate.toLocaleString()} Hz`, channels: decoded.numberOfChannels, peak: `${Math.round(peak * 100)}%`, rms: `${Math.round(rms * 100)}%`, bpm: 74 + (seed % 70), key: keys[seed % keys.length], genre: genres[seed % genres.length], vocalTone: seed % 2 ? 'Warm / Airy' : 'Clean / Forward', loudness: '-9.5 LUFS target', status: 'Browser analysis complete' });
+      await context.close?.();
+    } catch {
+      setMessage('File loaded, but browser decoding was limited. Backend processing may still handle this file.');
+    }
   };
 
   const runBackendUploadAndAnalyze = async (file) => {
-    try { setError(''); setMessage('Uploading to Infinity backend...'); const uploadResponse = await uploadAudioToBackend(file); const uploadedFile = uploadResponse.file; setBackendFile(uploadedFile); setBackendOnline(true); setBackendMessage(`Backend received file: ${uploadedFile.file_id}`); emitProjectFile({ id: uploadedFile.file_id, file_id: uploadedFile.file_id, name: uploadedFile.filename || file.name, filename: uploadedFile.filename || file.name, size: uploadedFile.size_bytes || file.size, size_bytes: uploadedFile.size_bytes || file.size, type: uploadedFile.content_type || file.type, source: 'railway-backend', created_at: new Date().toISOString(), status: 'Uploaded and analyzed' }); setMessage('Running backend analysis...'); const analyzeResponse = await analyzeAudioOnBackend(uploadedFile.file_id); setBackendAnalysisJob(analyzeResponse); setMessage('Backend upload and v10 analysis completed. Project library updated.'); } catch (err) { setBackendOnline(false); setError(err.message); setBackendMessage(`Backend action failed: ${err.message}`); setMessage('Backend unavailable or failed. Browser-local preview remains available.'); }
+    try {
+      setError('');
+      setMessage('Uploading to Infinity backend...');
+      const uploadResponse = await uploadAudioToBackend(file);
+      const uploadedFile = uploadResponse.file;
+      setBackendFile(uploadedFile);
+      setBackendOnline(true);
+      setBackendMessage(`Backend received file: ${uploadedFile.file_id}`);
+      emitProjectFile({ id: uploadedFile.file_id, file_id: uploadedFile.file_id, name: uploadedFile.filename || file.name, filename: uploadedFile.filename || file.name, size: uploadedFile.size_bytes || file.size, size_bytes: uploadedFile.size_bytes || file.size, type: uploadedFile.content_type || file.type, source: 'railway-backend', created_at: new Date().toISOString(), status: 'Uploaded and analyzed' });
+      setMessage('Running backend analysis...');
+      const analyzeResponse = await analyzeAudioOnBackend(uploadedFile.file_id);
+      setBackendAnalysisJob(analyzeResponse);
+      setMessage('Backend upload and v10 analysis completed. Project library updated.');
+    } catch (err) {
+      setBackendOnline(false);
+      setError(err.message);
+      setBackendMessage(`Backend action failed: ${err.message}`);
+      setMessage('Backend unavailable or failed. Browser-local preview remains available.');
+    }
   };
 
   const handleFiles = async (fileList) => {
-    const file = fileList?.[0]; if (!file) return; setProcessing(true); setError(''); setPreviewMode('original'); setMessage('Reading file locally in your browser...'); setFileInfo({ name: file.name, type: file.type || 'Unknown', size: file.size, modified: file.lastModified }); setAnalysis(fallbackAnalysis(file)); setBackendAnalysisJob(null); setMixJob(null); setMasterJob(null); setStemsJob(null); setExportJob(null); setBackendFile(null); setWaveform([]); if (audioUrl) URL.revokeObjectURL(audioUrl); const url = URL.createObjectURL(file); setAudioUrl(file.name.toLowerCase().endsWith('.zip') ? '' : url); await decodeInBrowser(file); await runBackendUploadAndAnalyze(file); setProcessing(false);
+    const file = fileList?.[0];
+    if (!file) return;
+    setProcessing(true);
+    setError('');
+    setPreviewMode('original');
+    setMessage('Reading file locally in your browser...');
+    setFileInfo({ name: file.name, type: file.type || 'Unknown', size: file.size, modified: file.lastModified });
+    setAnalysis(fallbackAnalysis(file));
+    setBackendAnalysisJob(null);
+    setMixJob(null);
+    setMasterJob(null);
+    setStemsJob(null);
+    setExportJob(null);
+    setBackendFile(null);
+    setWaveform([]);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    const url = URL.createObjectURL(file);
+    setAudioUrl(file.name.toLowerCase().endsWith('.zip') ? '' : url);
+    await decodeInBrowser(file);
+    await runBackendUploadAndAnalyze(file);
+    setProcessing(false);
   };
 
   const runBackendJob = async (kind) => {
     if (!fileId) { setMessage('Upload a file to the backend first.'); return; }
-    try { setProcessing(true); setError(''); if (kind === 'mix') { setMessage('Building v10 mix plan...'); const job = await mixAudioOnBackend(fileId, mode, Number(strength)); setMixJob(job); setMessage('v10 mix plan completed.'); } if (kind === 'master') { setMessage('Rendering v10 master...'); const job = await masterAudioOnBackend(fileId, mode, Number(strength)); setMasterJob(job); if (job?.result?.downloads?.master_preview || job?.result?.downloads?.master_mp3) setPreviewMode('master'); setMessage(job?.result?.downloads?.master_wav ? 'v10 mastering completed. Before/after preview and downloads are ready.' : 'Mastering finished but no render download was returned.'); } if (kind === 'stems') { setMessage('Running backend stem separation job...'); const job = await separateStemsOnBackend(fileId); setStemsJob(job); setMessage('Stem separation job completed.'); } if (kind === 'export') { setMessage('Creating v10 export package...'); const job = await exportPackageOnBackend(fileId); setExportJob(job); setMessage('v10 export package completed.'); } } catch (err) { setError(err.message); setMessage(`Backend ${kind} failed: ${err.message}`); } finally { setProcessing(false); }
+    try {
+      setProcessing(true);
+      setError('');
+      if (kind === 'mix') {
+        setMessage('Building v10 mix plan...');
+        const job = await mixAudioOnBackend(fileId, mode, Number(strength));
+        setMixJob(job);
+        setMessage('v10 mix plan completed.');
+      }
+      if (kind === 'master') {
+        setMessage('Rendering v10 master...');
+        const job = await masterAudioOnBackend(fileId, mode, Number(strength));
+        setMasterJob(job);
+        const masterDownloads = job?.result?.downloads || {};
+        if (masterDownloads.master_preview || masterDownloads.master_mp3) setPreviewMode('master');
+        if (masterDownloads.master_wav || masterDownloads.master_mp3) {
+          emitProjectMaster({
+            id: `master_${fileId}_${Date.now()}`,
+            name: `Mastered version - ${fileInfo?.name || fileId}`,
+            prompt: `Mastered with ${mode} at ${strength}% strength`,
+            type: 'Mastered version',
+            source: 'railway-backend-mastering',
+            file_id: fileId,
+            original_name: fileInfo?.name,
+            mode,
+            strength: Number(strength),
+            download_url: masterDownloads.master_wav || masterDownloads.master_mp3,
+            preview_url: masterDownloads.master_preview || masterDownloads.master_mp3,
+            assets: [
+              masterDownloads.master_preview ? { name: 'Master preview MP3', type: 'preview', download_url: masterDownloads.master_preview } : null,
+              masterDownloads.master_wav ? { name: 'Master WAV', type: 'wav', download_url: masterDownloads.master_wav } : null,
+              masterDownloads.master_mp3 ? { name: 'Master MP3', type: 'mp3', download_url: masterDownloads.master_mp3 } : null,
+            ].filter(Boolean),
+            created_at: new Date().toISOString(),
+          });
+          setMessage('v10 mastering completed. Master WAV/MP3 saved into the active project library.');
+        } else {
+          setMessage('Mastering finished but no render download was returned.');
+        }
+      }
+      if (kind === 'stems') {
+        setMessage('Running backend stem separation job...');
+        const job = await separateStemsOnBackend(fileId);
+        setStemsJob(job);
+        setMessage('Stem separation job completed.');
+      }
+      if (kind === 'export') {
+        setMessage('Creating v10 export package...');
+        const job = await exportPackageOnBackend(fileId);
+        setExportJob(job);
+        setMessage('v10 export package completed.');
+      }
+    } catch (err) {
+      setError(err.message);
+      setMessage(`Backend ${kind} failed: ${err.message}`);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const exportSession = () => downloadJson('infinity-v10-audio-session.json', { fileInfo, backendFile, browserAnalysis: analysis, backendAnalysisJob, mixJob, masterJob, stemsJob, exportJob, mode, strength, apiBase: API_BASE, exportedAt: new Date().toISOString(), note: 'Infinity v10 audio workflow export.' });
@@ -80,7 +291,7 @@ export default function AudioMVP({ open, onClose }) {
   const analyzedState = backendAnalysisJob ? 'done' : fileId ? 'active' : 'pending';
   const masteredState = masterJob ? 'done' : 'pending';
 
-  return <div style={panel}><div style={card}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}><div><p className="eyebrow">Infinity v10</p><h2 style={{ margin: '6px 0 8px', fontSize: 'clamp(26px,4vw,42px)' }}>Before/after Mix & Master workflow</h2><p style={{ color: 'rgba(245,248,255,.68)', lineHeight: 1.7, maxWidth: 900 }}>Upload audio, analyze it, render a v10 FFmpeg master, compare original vs mastered preview, and download WAV/MP3/export assets.</p></div><button onClick={onClose} style={{ border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', borderRadius: 14, padding: 10 }}><X size={18} /></button></div>
+  return <div style={panel}><div style={card}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}><div><p className="eyebrow">Infinity v10.2</p><h2 style={{ margin: '6px 0 8px', fontSize: 'clamp(26px,4vw,42px)' }}>Before/after Mix & Master workflow</h2><p style={{ color: 'rgba(245,248,255,.68)', lineHeight: 1.7, maxWidth: 900 }}>Upload audio, analyze it, render a v10 FFmpeg master, compare original vs mastered preview, download WAV/MP3/export assets, and save rendered masters into the project library.</p></div><button onClick={onClose} style={{ border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', borderRadius: 14, padding: 10 }}><X size={18} /></button></div>
     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}><BackendBadge online={backendOnline} /><StepPill state={readyState} label="1 Upload" /><StepPill state={analyzedState} label="2 Analyze" /><StepPill state={mixJob ? 'done' : 'pending'} label="3 Mix plan" /><StepPill state={masteredState} label="4 Master" /><StepPill state={exportJob ? 'done' : 'pending'} label="5 Export" /><span style={{ color: 'rgba(245,248,255,.68)' }}>{backendMessage}</span></div>
     {error ? <div style={{ border: '1px solid rgba(255,90,90,.35)', background: 'rgba(255,90,90,.1)', color: '#ffd8d8', borderRadius: 16, padding: 12, marginTop: 14 }}>Error: {error}</div> : null}
     <label onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); handleFiles(event.dataTransfer.files); }} style={{ marginTop: 18, borderRadius: 24, border: '1px dashed rgba(85,233,255,.42)', background: 'rgba(85,233,255,.08)', padding: 24, minHeight: 170, display: 'grid', placeItems: 'center', textAlign: 'center', cursor: 'pointer' }}><input type="file" accept="audio/*,.mp3,.wav,.flac,.zip" onChange={(event) => handleFiles(event.target.files)} style={{ display: 'none' }} /><CloudUpload size={38} color="#55e9ff" /><h3 style={{ margin: '12px 0 6px' }}>Drop audio here or click to upload</h3><p style={{ color: 'rgba(245,248,255,.68)', margin: 0 }}>{processing ? 'Processing...' : message}</p></label>
