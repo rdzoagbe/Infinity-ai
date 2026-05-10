@@ -44,6 +44,7 @@ def ffprobe_metadata(path: Path) -> dict:
         "channels": stream.get("channels"),
         "codec": stream.get("codec_name"),
         "format_name": fmt.get("format_name"),
+        "size_bytes": _safe_int(fmt.get("size")),
     }
 
 
@@ -87,40 +88,90 @@ def estimate_music_traits(filename: str, metadata: dict) -> dict:
 
 def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict) -> dict:
     traits = estimate_music_traits(filename, metadata)
+    duration = metadata.get("duration_seconds")
+    sample_rate = metadata.get("sample_rate")
+    bitrate = metadata.get("bitrate")
+    readiness = "Ready for v10 mastering" if metadata.get("ffmpeg_available") else "Metadata only; FFmpeg missing"
     return {
         "file_id": file_id,
         "filename": filename,
-        "duration_seconds": metadata.get("duration_seconds"),
-        "sample_rate": metadata.get("sample_rate"),
+        "duration_seconds": duration,
+        "sample_rate": sample_rate,
         "channels": metadata.get("channels"),
-        "bitrate": metadata.get("bitrate"),
+        "bitrate": bitrate,
         "codec": metadata.get("codec"),
         "format_name": metadata.get("format_name"),
         "ffmpeg_available": metadata.get("ffmpeg_available"),
         "demucs_available": metadata.get("demucs_available"),
+        "readiness": readiness,
+        "quality_flags": {
+            "duration_ok": bool(duration and duration > 5),
+            "sample_rate_ok": bool(sample_rate and sample_rate >= 44100),
+            "bitrate_ok": bool((bitrate or 0) >= 192000) if bitrate else None,
+            "stereo_or_mono_detected": metadata.get("channels") in (1, 2),
+        },
         **traits,
-        "note": "Infinity v7 analysis. FFprobe/mutagen are real; BPM/key/genre are heuristic until Librosa/Essentia integration.",
+        "note": "Infinity v10 analysis. FFprobe/mutagen metadata is real; BPM/key/genre remain heuristic until Librosa/Essentia integration.",
     }
+
+
+def _profile_for_mode(mode: str) -> dict:
+    normalized = (mode or "custom").lower()
+    profiles = {
+        "trap": {"low_boost": 1.8, "presence": 1.0, "air": 0.8, "compressor_ratio": 3.2, "target_lufs": -9},
+        "afrobeat": {"low_boost": 1.2, "presence": 1.4, "air": 1.0, "compressor_ratio": 2.4, "target_lufs": -10},
+        "drill": {"low_boost": 1.7, "presence": 1.1, "air": 0.7, "compressor_ratio": 3.0, "target_lufs": -9},
+        "house": {"low_boost": 1.3, "presence": 1.0, "air": 1.2, "compressor_ratio": 2.6, "target_lufs": -8},
+        "gospel": {"low_boost": 0.8, "presence": 1.5, "air": 1.4, "compressor_ratio": 2.1, "target_lufs": -11},
+        "cinematic": {"low_boost": 0.9, "presence": 0.8, "air": 1.7, "compressor_ratio": 1.8, "target_lufs": -14},
+        "soul": {"low_boost": 0.9, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.0, "target_lufs": -12},
+        "experimental": {"low_boost": 1.0, "presence": 1.0, "air": 1.5, "compressor_ratio": 2.0, "target_lufs": -12},
+    }
+    for key, profile in profiles.items():
+        if key in normalized:
+            return {"name": key.title(), **profile}
+    return {"name": "Custom AI adaptive", "low_boost": 1.0, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.4, "target_lufs": -11}
 
 
 def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
-        return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "winget install -e --id Gyan.FFmpeg"}
+        return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
 
     safe_strength = max(0, min(100, int(strength)))
-    gain = round((safe_strength - 50) / 25, 2)
+    intensity = safe_strength / 100
+    profile = _profile_for_mode(mode)
     wav_path = output_dir / "mastered.wav"
     mp3_path = output_dir / "mastered.mp3"
-    audio_filter = f"highpass=f=25,acompressor=threshold=-18dB:ratio=2.5:attack=20:release=180:makeup={max(1, 1 + gain / 4)},loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.95"
+    preview_path = output_dir / "mastered-preview.mp3"
+
+    compressor_threshold = round(-24 + (intensity * 8), 2)
+    makeup = round(1.0 + intensity * 1.4, 2)
+    limit = round(0.90 + intensity * 0.08, 3)
+    target_lufs = profile["target_lufs"]
+
+    filters = [
+        "highpass=f=25",
+        "lowpass=f=19000",
+        f"equalizer=f=95:t=q:w=1.0:g={profile['low_boost'] * intensity:.2f}",
+        f"equalizer=f=3200:t=q:w=1.1:g={profile['presence'] * intensity:.2f}",
+        f"equalizer=f=11500:t=q:w=1.0:g={profile['air'] * intensity:.2f}",
+        f"acompressor=threshold={compressor_threshold}dB:ratio={profile['compressor_ratio']}:attack=18:release=180:makeup={makeup}",
+        f"loudnorm=I={target_lufs}:TP=-1.5:LRA=10",
+        f"alimiter=limit={limit}",
+    ]
+    audio_filter = ",".join(filters)
 
     wav_cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", audio_filter, "-ar", "44100", "-ac", "2", str(wav_path)]
-    code, stdout, stderr = run_command(wav_cmd)
+    code, stdout, stderr = run_command(wav_cmd, timeout=60 * 10)
     if code != 0:
-        return {"status": "failed", "stderr": stderr[-4000:], "command": " ".join(wav_cmd)}
+        return {"status": "failed", "stderr": stderr[-4000:], "command": " ".join(wav_cmd), "profile": profile}
 
     mp3_cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-b:a", "320k", str(mp3_path)]
-    mp3_code, mp3_stdout, mp3_stderr = run_command(mp3_cmd)
+    mp3_code, mp3_stdout, mp3_stderr = run_command(mp3_cmd, timeout=60 * 5)
+
+    preview_cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-t", "30", "-codec:a", "libmp3lame", "-b:a", "192k", str(preview_path)]
+    preview_code, preview_stdout, preview_stderr = run_command(preview_cmd, timeout=60 * 3)
 
     outputs = {"wav": str(wav_path), "wav_exists": wav_path.exists()}
     if mp3_code == 0:
@@ -128,7 +179,26 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         outputs["mp3_exists"] = mp3_path.exists()
     else:
         outputs["mp3_error"] = mp3_stderr[-2000:]
-    return {"status": "completed", "mode": mode, "strength": safe_strength, "filter_chain": audio_filter, "outputs": outputs}
+    if preview_code == 0:
+        outputs["preview_mp3"] = str(preview_path)
+        outputs["preview_exists"] = preview_path.exists()
+    else:
+        outputs["preview_error"] = preview_stderr[-2000:]
+
+    return {
+        "status": "completed",
+        "mode": mode,
+        "profile": profile,
+        "strength": safe_strength,
+        "target_lufs": target_lufs,
+        "filter_chain": audio_filter,
+        "steps": ["high-pass cleanup", "genre EQ shaping", "intelligent compression", "streaming loudness normalization", "true-peak limiting", "WAV/MP3/preview render"],
+        "outputs": outputs,
+        "before_after": {
+            "original": "Use /api/v1/files/{file_id}/download/original",
+            "master_preview": "Use /api/v1/files/{file_id}/download/master-preview",
+        },
+    }
 
 
 def generate_prompt_sound(output_dir: Path, asset_id: str, prompt: str, intensity: int = 68, genre: str = "Cinematic", emotion: str = "Mystic") -> dict:
@@ -182,18 +252,10 @@ def separate_stems_with_demucs(input_path: Path, stems_dir: Path, model: str = "
     stems_dir.mkdir(parents=True, exist_ok=True)
 
     if input_path.suffix.lower() == ".zip":
-        return {
-            "status": "skipped",
-            "reason": "ZIP stem packages are already grouped audio assets; upload a mixed MP3/WAV/FLAC for Demucs separation.",
-        }
+        return {"status": "skipped", "reason": "ZIP stem packages are already grouped audio assets; upload a mixed MP3/WAV/FLAC for Demucs separation."}
 
     if not has_demucs():
-        return {
-            "status": "skipped",
-            "reason": "Demucs is not installed in the backend environment.",
-            "install_hint": "cd backend; .\\.venv\\Scripts\\python.exe -m pip install -r requirements-demucs.txt",
-            "expected_outputs": ["vocals.wav", "drums.wav", "bass.wav", "other.wav"],
-        }
+        return {"status": "skipped", "reason": "Demucs is not installed in the backend environment.", "install_hint": "cd backend; .\\.venv\\Scripts\\python.exe -m pip install -r requirements-demucs.txt", "expected_outputs": ["vocals.wav", "drums.wav", "bass.wav", "other.wav"]}
 
     demucs_root = stems_dir / "demucs_output"
     if demucs_root.exists():
@@ -231,13 +293,7 @@ def separate_stems_with_demucs(input_path: Path, stems_dir: Path, model: str = "
     if not discovered:
         return {"status": "failed", "reason": "Demucs finished but no stem WAV files were found.", "output_dir": str(demucs_root)}
 
-    return {
-        "status": "completed",
-        "model": model,
-        "command": " ".join(used_command or []),
-        "stems": discovered,
-        "note": "Infinity v7 real stem separation complete with Demucs.",
-    }
+    return {"status": "completed", "model": model, "command": " ".join(used_command or []), "stems": discovered, "note": "Infinity v10 stem separation complete with Demucs."}
 
 
 def _safe_float(value):
