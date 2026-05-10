@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
-import AudioMVP from './AudioMVP.jsx';
+import AudioMVP from './AudioMVPV104.jsx';
 import AuthDashboard from './AuthDashboardV93.jsx';
 import BetaFeedback from './BetaFeedback.jsx';
 
