@@ -3,6 +3,7 @@ import BaseInfinityApp from './InfinityBase.jsx';
 import AudioMVP from './AudioMVPV106.jsx';
 import AuthDashboard from './AuthDashboardV93.jsx';
 import BetaFeedback from './BetaFeedback.jsx';
+import ReleaseWorkflowV12 from './ReleaseWorkflowV12.jsx';
 
 const NAV_MAP = {
   mix: 'AI Mix & Master',
@@ -70,6 +71,7 @@ export default function InfinityActionRouter() {
         <BaseInfinityApp />
       </AuthDashboard>
       <AudioMVP open={audioMvpOpen} onClose={() => setAudioMvpOpen(false)} />
+      <ReleaseWorkflowV12 />
       <BetaFeedback />
     </>
   );
