@@ -6,9 +6,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .audio import full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
+from .audio import clean_vocals_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
-from .models import AnalyzeRequest, JobType, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
+from .models import AnalyzeRequest, CleanVocalsRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, make_id
 
 settings = get_settings()
@@ -105,7 +105,7 @@ def master_audio(payload: ProcessRequest):
     input_path = Path(file_data["stored_path"])
     output_dir = Path(file_data["workspace"]) / "renders"
     job = create_job(JobType.master, message="v10 mastering started")
-    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength)
+    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform)
     result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
     if render.get("status") == "completed":
         result["downloads"] = {
@@ -180,7 +180,18 @@ def download_file(file_id: str, asset_type: str):
     file_data = get_file_or_404(file_id)
     workspace = Path(file_data["workspace"])
     original_path = Path(file_data["stored_path"])
-    paths = {"original": original_path, "analysis": workspace / "analysis" / "analysis.json", "master-wav": workspace / "renders" / "mastered.wav", "master-mp3": workspace / "renders" / "mastered.mp3", "master-preview": workspace / "renders" / "mastered-preview.mp3", "manifest": workspace / "exports" / "manifest.json"}
+    paths = {
+        "original": original_path,
+        "analysis": workspace / "analysis" / "analysis.json",
+        "master-wav": workspace / "renders" / "mastered.wav",
+        "master-mp3": workspace / "renders" / "mastered.mp3",
+        "master-preview": workspace / "renders" / "mastered-preview.mp3",
+        "manifest": workspace / "exports" / "manifest.json",
+        "cleaned-wav": workspace / "renders" / "vocals-cleaned.wav",
+        "cleaned-mp3": workspace / "renders" / "vocals-cleaned.mp3",
+        "mixed-wav": workspace / "renders" / "mixed.wav",
+        "mixed-mp3": workspace / "renders" / "mixed.mp3",
+    }
     if asset_type.startswith("stem-"):
         stem_name = asset_type.replace("stem-", "", 1)
         if stem_name not in {"vocals", "drums", "bass", "other"}:
@@ -191,8 +202,85 @@ def download_file(file_id: str, asset_type: str):
         raise HTTPException(status_code=400, detail="Unknown asset type")
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Asset not found: {asset_type}")
-    media_type = "audio/mpeg" if path.suffix.lower() == ".mp3" else "audio/wav" if path.suffix.lower() == ".wav" else "application/json"
+    _media_types = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac", ".webm": "audio/webm", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".json": "application/json"}
+    media_type = _media_types.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media_type, filename=path.name)
+
+@app.post("/api/v1/vocal/clean")
+def clean_vocals(payload: CleanVocalsRequest):
+    file_data = get_file_or_404(payload.file_id)
+    input_path = Path(file_data["stored_path"])
+    output_dir = Path(file_data["workspace"]) / "renders"
+    job = create_job(JobType.clean_vocals, message="Vocal cleaning started")
+    result_data = clean_vocals_with_ffmpeg(input_path, output_dir)
+    downloads = {}
+    if result_data.get("status") == "completed":
+        downloads["cleaned_wav"] = f"/api/v1/files/{payload.file_id}/download/cleaned-wav"
+        if result_data.get("mp3_exists"):
+            downloads["cleaned_mp3"] = f"/api/v1/files/{payload.file_id}/download/cleaned-mp3"
+    result = {"file_id": payload.file_id, "clean": result_data, "downloads": downloads}
+    msg = "Vocal cleaning complete" if result_data.get("status") == "completed" else f"Vocal cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
+
+@app.post("/api/v1/audio/mix-vocal-beat")
+def mix_vocal_beat(payload: MixVocalBeatRequest):
+    vocal_data = get_file_or_404(payload.vocal_file_id)
+    beat_data = get_file_or_404(payload.beat_file_id)
+
+    vocal_path = Path(vocal_data["stored_path"])
+    beat_path = Path(beat_data["stored_path"])
+
+    cleaned_vocal = Path(vocal_data["workspace"]) / "renders" / "vocals-cleaned.wav"
+    if cleaned_vocal.exists():
+        vocal_path = cleaned_vocal
+
+    output_dir = Path(vocal_data["workspace"]) / "renders"
+    job = create_job(JobType.mix_vocal_beat, message="Mixing vocals with beat")
+    mix_result = mix_vocal_beat_with_ffmpeg(vocal_path, beat_path, output_dir, payload.vocal_gain, payload.beat_gain)
+
+    mixed_file_id = None
+    if mix_result.get("status") == "completed":
+        mixed_wav_path = Path(mix_result["wav"])
+        mixed_file_id = make_id("file")
+        mixed_workspace = file_workspace(mixed_file_id)
+        dest = mixed_workspace / "original" / "mixed.wav"
+        shutil.copy2(mixed_wav_path, dest)
+        mixed_metadata = read_basic_audio_metadata(dest)
+        FILES[mixed_file_id] = {
+            "file_id": mixed_file_id,
+            "filename": "mixed.wav",
+            "content_type": "audio/wav",
+            "size_bytes": dest.stat().st_size,
+            "stored_path": str(dest),
+            "workspace": str(mixed_workspace),
+            "metadata": mixed_metadata,
+            "parent_vocal_id": payload.vocal_file_id,
+            "parent_beat_id": payload.beat_file_id,
+            "downloads": {"original": f"/api/v1/files/{mixed_file_id}/download/original"},
+        }
+
+    downloads = {}
+    if mix_result.get("status") == "completed":
+        downloads["mixed_wav"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-wav"
+        if mix_result.get("mp3_exists"):
+            downloads["mixed_mp3"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-mp3"
+        if mixed_file_id:
+            downloads["mixed_original"] = f"/api/v1/files/{mixed_file_id}/download/original"
+
+    result = {
+        "vocal_file_id": payload.vocal_file_id,
+        "beat_file_id": payload.beat_file_id,
+        "mixed_file_id": mixed_file_id,
+        "vocal_gain": payload.vocal_gain,
+        "beat_gain": payload.beat_gain,
+        "used_cleaned_vocal": cleaned_vocal.exists(),
+        "mix": mix_result,
+        "downloads": downloads,
+    }
+    msg = "Mix complete" if mix_result.get("status") == "completed" else f"Mix failed: {mix_result.get('reason', mix_result.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
 
 @app.get("/api/v1/jobs/{job_id}")
 def get_job(job_id: str):

@@ -60,14 +60,34 @@ export async function mixAudioOnBackend(fileId, mode = "Custom AI adaptive", str
   return parseResponse(response, "Mix job failed");
 }
 
-export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80) {
+export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify") {
   const response = await fetch(`${API_BASE}/api/v1/audio/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength }),
+    body: JSON.stringify({ file_id: fileId, mode, strength, platform }),
   });
 
   return parseResponse(response, "Mastering job failed");
+}
+
+export async function cleanVocalsOnBackend(fileId) {
+  const response = await fetch(`${API_BASE}/api/v1/vocal/clean`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+
+  return parseResponse(response, "Vocal cleaning failed");
+}
+
+export async function mixVocalBeatOnBackend(vocalFileId, beatFileId, vocalGain = 1.0, beatGain = 0.85) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/mix-vocal-beat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vocal_file_id: vocalFileId, beat_file_id: beatFileId, vocal_gain: vocalGain, beat_gain: beatGain }),
+  });
+
+  return parseResponse(response, "Mix failed");
 }
 
 export async function separateStemsOnBackend(fileId) {
