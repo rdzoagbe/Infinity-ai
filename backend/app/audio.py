@@ -185,6 +185,7 @@ def mix_vocal_beat_with_ffmpeg(
     vocal_presence_boost: bool = True,
     beat_stereo_width: float = 1.5,
     bus_compress: bool = True,
+    reverb_amount: float = 0.2,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
@@ -193,16 +194,21 @@ def mix_vocal_beat_with_ffmpeg(
     vg = max(0.0, min(2.0, float(vocal_gain)))
     bg = max(0.0, min(2.0, float(beat_gain)))
     sw = max(1.0, min(3.0, float(beat_stereo_width)))
+    rv = max(0.0, min(1.0, float(reverb_amount)))
     mixed_wav = output_dir / "mixed.wav"
     mixed_mp3 = output_dir / "mixed.mp3"
 
-    # Vocal chain: volume → optional presence & air EQ
+    # Vocal chain: volume → optional presence & air EQ → optional reverb
     vocal_filters = [f"volume={vg}"]
     if vocal_presence_boost:
         vocal_filters += [
             "equalizer=f=3500:t=q:w=1.0:g=2.5",  # presence cut-through
             "treble=g=1.5:f=12000",                 # air shelf
         ]
+    if rv > 0.05:
+        delay_ms = round(40 + rv * 160)          # 40ms (tight room) → 200ms (large hall)
+        decay = round(0.15 + rv * 0.45, 2)       # 0.15 (subtle) → 0.60 (lush)
+        vocal_filters.append(f"aecho=0.8:0.88:{delay_ms}:{decay}")
     vocal_chain = f"[0:a]{','.join(vocal_filters)}[v]"
 
     # Beat chain: volume → optional stereo widening

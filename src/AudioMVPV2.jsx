@@ -150,6 +150,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const [vocalPresenceBoost, setVocalPresenceBoost] = useState(true);
   const [beatStereoWidth, setBeatStereoWidth] = useState(1.5);
   const [busCompress, setBusCompress] = useState(true);
+  const [reverbAmount, setReverbAmount] = useState(0.2);
   const [mixJob, setMixJob] = useState(null);
   const [mixedFileId, setMixedFileId] = useState(null);
   const [mixedPreviewUrl, setMixedPreviewUrl] = useState('');
@@ -254,7 +255,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setError('');
     setStatus('Mixing vocals with beat...');
     try {
-      const job = await mixVocalBeatOnBackend(vocalBackend.file_id, beatBackend.file_id, vocalGain, beatGain, vocalPresenceBoost, beatStereoWidth, busCompress);
+      const job = await mixVocalBeatOnBackend(vocalBackend.file_id, beatBackend.file_id, vocalGain, beatGain, vocalPresenceBoost, beatStereoWidth, busCompress, reverbAmount);
       setMixJob(job);
       const mid = job?.result?.mixed_file_id;
       if (mid) {
@@ -297,7 +298,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setMixJob(null); setMixedFileId(null); setMixedPreviewUrl('');
     setMasterJob(null); setError(''); setStatus('');
     setVocalGain(1.0); setBeatGain(0.85);
-    setVocalPresenceBoost(true); setBeatStereoWidth(1.5); setBusCompress(true);
+    setVocalPresenceBoost(true); setBeatStereoWidth(1.5); setBusCompress(true); setReverbAmount(0.2);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -406,12 +407,25 @@ export default function AudioMVPV2({ open, onClose }) {
               </div>
               <input type="range" min="0" max="200" value={Math.round(vocalGain * 100)} onChange={e => setVocalGain(Number(e.target.value) / 100)} style={{ width: '100%' }} />
             </label>
-            <label style={{ display: 'block' }}>
+            <label style={{ display: 'block', marginBottom: 18 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
                 <span>Beat level</span>
                 <b style={{ color: '#ff4de1' }}>{Math.round(beatGain * 100)}%</b>
               </div>
               <input type="range" min="0" max="200" value={Math.round(beatGain * 100)} onChange={e => setBeatGain(Number(e.target.value) / 100)} style={{ width: '100%' }} />
+            </label>
+            <label style={{ display: 'block' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
+                <span>Vocal reverb / room</span>
+                <b style={{ color: '#b78aff' }}>
+                  {reverbAmount < 0.06 ? 'Dry' : reverbAmount < 0.35 ? 'Room' : reverbAmount < 0.65 ? 'Studio' : reverbAmount < 0.85 ? 'Hall' : 'Cathedral'}
+                  {' '}({Math.round(reverbAmount * 100)}%)
+                </b>
+              </div>
+              <input type="range" min="0" max="100" value={Math.round(reverbAmount * 100)} onChange={e => setReverbAmount(Number(e.target.value) / 100)} style={{ width: '100%' }} />
+              <div style={{ color: 'rgba(245,248,255,.38)', fontSize: 12, marginTop: 6 }}>
+                Adds room depth so vocals sit inside the beat — not on top of it.
+              </div>
             </label>
           </div>
           <div style={{ ...card, marginTop: 14 }}>

@@ -66,6 +66,7 @@ class MixVocalBeatRequest(BaseModel):
     vocal_presence_boost: bool = True
     beat_stereo_width: float = 1.5
     bus_compress: bool = True
+    reverb_amount: float = 0.2  # 0.0 = dry, 1.0 = large hall
 
 
 class SoundGenerateRequest(BaseModel):

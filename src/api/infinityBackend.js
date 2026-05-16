@@ -84,6 +84,7 @@ export async function mixVocalBeatOnBackend(
   vocalFileId, beatFileId,
   vocalGain = 1.0, beatGain = 0.85,
   vocalPresenceBoost = true, beatStereoWidth = 1.5, busCompress = true,
+  reverbAmount = 0.2,
 ) {
   const response = await fetch(`${API_BASE}/api/v1/audio/mix-vocal-beat`, {
     method: "POST",
@@ -96,6 +97,7 @@ export async function mixVocalBeatOnBackend(
       vocal_presence_boost: vocalPresenceBoost,
       beat_stereo_width: beatStereoWidth,
       bus_compress: busCompress,
+      reverb_amount: reverbAmount,
     }),
   });
 
