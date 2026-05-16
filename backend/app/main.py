@@ -9,11 +9,16 @@ from fastapi.responses import FileResponse
 from .audio import clean_vocals_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
 from .models import AnalyzeRequest, CleanVocalsRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
-from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, make_id
+from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, load_store, make_id, save_store
 
 settings = get_settings()
 app = FastAPI(title="Infinity AI Audio Backend", version="10.0.0", description="FastAPI backend for Infinity AI music production.")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+@app.on_event("startup")
+def on_startup():
+    load_store()
 
 def file_workspace(file_id: str) -> Path:
     root = settings.storage_path / file_id
@@ -51,6 +56,7 @@ def create_project(payload: ProjectCreateRequest):
     project_id = make_id("project")
     project = {"project_id": project_id, "title": payload.title, "artist": payload.artist, "genre": payload.genre, "status": payload.status, "notes": payload.notes, "files": []}
     PROJECTS[project_id] = project
+    save_store()
     return project
 
 @app.get("/api/v1/projects")
@@ -78,6 +84,7 @@ async def upload_audio(file: UploadFile = File(...)):
     metadata = read_basic_audio_metadata(stored_path) if suffix != ".zip" else {"package": "stem_zip", "ffmpeg_available": has_ffmpeg(), "demucs_available": has_demucs()}
     record = {"file_id": file_id, "filename": file.filename, "content_type": file.content_type, "size_bytes": size, "stored_path": str(stored_path), "workspace": str(workspace), "metadata": metadata, "downloads": {"original": f"/api/v1/files/{file_id}/download/original"}}
     FILES[file_id] = record
+    save_store()
     job = create_job(JobType.upload, message="Upload complete", result={"file": record})
     return {"file": record, "job": job}
 
@@ -259,6 +266,7 @@ def mix_vocal_beat(payload: MixVocalBeatRequest):
             "parent_beat_id": payload.beat_file_id,
             "downloads": {"original": f"/api/v1/files/{mixed_file_id}/download/original"},
         }
+        save_store()
 
     downloads = {}
     if mix_result.get("status") == "completed":
