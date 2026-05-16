@@ -182,6 +182,9 @@ def mix_vocal_beat_with_ffmpeg(
     output_dir: Path,
     vocal_gain: float = 1.0,
     beat_gain: float = 0.85,
+    vocal_presence_boost: bool = True,
+    beat_stereo_width: float = 1.5,
+    bus_compress: bool = True,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
@@ -189,14 +192,33 @@ def mix_vocal_beat_with_ffmpeg(
 
     vg = max(0.0, min(2.0, float(vocal_gain)))
     bg = max(0.0, min(2.0, float(beat_gain)))
+    sw = max(1.0, min(3.0, float(beat_stereo_width)))
     mixed_wav = output_dir / "mixed.wav"
     mixed_mp3 = output_dir / "mixed.mp3"
 
-    filter_complex = (
-        f"[0:a]volume={vg}[v];"
-        f"[1:a]volume={bg}[b];"
-        "[v][b]amix=inputs=2:duration=longest:normalize=0[out]"
-    )
+    # Vocal chain: volume → optional presence & air EQ
+    vocal_filters = [f"volume={vg}"]
+    if vocal_presence_boost:
+        vocal_filters += [
+            "equalizer=f=3500:t=q:w=1.0:g=2.5",  # presence cut-through
+            "treble=g=1.5:f=12000",                 # air shelf
+        ]
+    vocal_chain = f"[0:a]{','.join(vocal_filters)}[v]"
+
+    # Beat chain: volume → optional stereo widening
+    beat_filters = [f"volume={bg}"]
+    if sw > 1.0:
+        beat_filters.append(f"extrastereo=m={sw:.1f}")
+    beat_chain = f"[1:a]{','.join(beat_filters)}[b]"
+
+    # Mix bus: amix → optional bus compression → true-peak limiter
+    mix_filters = ["amix=inputs=2:duration=longest:normalize=0"]
+    if bus_compress:
+        mix_filters.append("acompressor=threshold=-12dB:ratio=2:attack=5:release=80:makeup=1.2")
+    mix_filters.append("alimiter=limit=0.95")
+    mix_chain = f"[v][b]{','.join(mix_filters)}[out]"
+
+    filter_complex = f"{vocal_chain};{beat_chain};{mix_chain}"
     cmd = [
         "ffmpeg", "-y",
         "-i", str(vocal_path),
@@ -217,6 +239,9 @@ def mix_vocal_beat_with_ffmpeg(
         "status": "completed",
         "vocal_gain": vg,
         "beat_gain": bg,
+        "vocal_presence_boost": vocal_presence_boost,
+        "beat_stereo_width": sw,
+        "bus_compress": bus_compress,
         "wav": str(mixed_wav),
         "wav_exists": mixed_wav.exists(),
         "mp3": str(mixed_mp3) if mp3_code == 0 else None,
@@ -242,7 +267,7 @@ def _profile_for_mode(mode: str) -> dict:
     return {"name": "Custom AI adaptive", "low_boost": 1.0, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.4, "target_lufs": -11}
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify") -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -259,14 +284,18 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     makeup = round(1.0 + intensity * 1.4, 2)
     limit = round(0.90 + intensity * 0.08, 3)
     target_lufs = profile["target_lufs"]
+    stereo_width = round(1.0 + 0.25 * intensity, 2)  # 1.0–1.25× side boost
 
     filters = [
-        "highpass=f=25",
+        "highpass=f=30",           # tighter sub-bass cleanup (was 25Hz — debris below 30Hz eats headroom)
         "lowpass=f=19000",
         f"equalizer=f=95:t=q:w=1.0:g={profile['low_boost'] * intensity:.2f}",
         f"equalizer=f=3200:t=q:w=1.1:g={profile['presence'] * intensity:.2f}",
-        f"equalizer=f=11500:t=q:w=1.0:g={profile['air'] * intensity:.2f}",
+        f"equalizer=f=8000:t=q:w=1.5:g=-1.5",  # sibilance control — always on, -1.5dB at 8kHz
+        f"treble=g={profile['air'] * intensity * 2:.2f}:f=11000",  # air shelf (proper shelf, not bell)
+        *(["treble=g=2.5:f=12000"] if air_boost else []),           # extra air when requested
         f"acompressor=threshold={compressor_threshold}dB:ratio={profile['compressor_ratio']}:attack=18:release=180:makeup={makeup}",
+        f"extrastereo=m={stereo_width}",  # gentle stereo widening scaled to strength
         f"loudnorm=I={target_lufs}:TP=-1.5:LRA=10",
         f"alimiter=limit={limit}",
     ]
@@ -303,7 +332,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "strength": safe_strength,
         "target_lufs": target_lufs,
         "filter_chain": audio_filter,
-        "steps": ["high-pass cleanup", "genre EQ shaping", "intelligent compression", "streaming loudness normalization", "true-peak limiting", "WAV/MP3/preview render"],
+        "steps": ["sub-bass cleanup (30Hz HPF)", "genre EQ shaping", "sibilance control (8kHz)", "air shelf (11kHz)", "intelligent compression", "stereo widening", "streaming loudness normalization", "true-peak limiting", "WAV/MP3/preview render"],
         "outputs": outputs,
         "before_after": {
             "original": "Use /api/v1/files/{file_id}/download/original",

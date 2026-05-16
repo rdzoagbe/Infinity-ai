@@ -112,7 +112,7 @@ def master_audio(payload: ProcessRequest):
     input_path = Path(file_data["stored_path"])
     output_dir = Path(file_data["workspace"]) / "renders"
     job = create_job(JobType.master, message="v10 mastering started")
-    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform)
+    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost)
     result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
     if render.get("status") == "completed":
         result["downloads"] = {
@@ -244,7 +244,11 @@ def mix_vocal_beat(payload: MixVocalBeatRequest):
 
     output_dir = Path(vocal_data["workspace"]) / "renders"
     job = create_job(JobType.mix_vocal_beat, message="Mixing vocals with beat")
-    mix_result = mix_vocal_beat_with_ffmpeg(vocal_path, beat_path, output_dir, payload.vocal_gain, payload.beat_gain)
+    mix_result = mix_vocal_beat_with_ffmpeg(
+        vocal_path, beat_path, output_dir,
+        payload.vocal_gain, payload.beat_gain,
+        payload.vocal_presence_boost, payload.beat_stereo_width, payload.bus_compress,
+    )
 
     mixed_file_id = None
     if mix_result.get("status") == "completed":
