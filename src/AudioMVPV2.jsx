@@ -43,6 +43,9 @@ const card = { border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,
 const cardGreen = { ...card, border: '1px solid rgba(87,240,156,.28)', background: 'rgba(87,240,156,.06)' };
 
 function safeError(e) { return e?.message || String(e || 'Unknown error'); }
+function _lufsLabel(platform) {
+  return { spotify: '-14', apple: '-16', youtube: '-14', soundcloud: '-10', tidal: '-14' }[platform] ?? '-14';
+}
 function formatBytes(b) {
   if (!b) return '0 B';
   const u = ['B', 'KB', 'MB', 'GB'];
@@ -123,6 +126,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const [mode, setMode] = useState('Custom AI adaptive');
   const [strength, setStrength] = useState(72);
   const [masterJob, setMasterJob] = useState(null);
+  const [masterCacheBust, setMasterCacheBust] = useState(0);
 
   const songUrlRef = useRef('');
 
@@ -204,6 +208,7 @@ export default function AudioMVPV2({ open, onClose }) {
     try {
       const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost);
       setMasterJob(job);
+      setMasterCacheBust(Date.now());
       setStatus('Mastering complete. Your files are ready.');
       if (step !== 5) go(5);
     } catch (err) {
@@ -218,14 +223,15 @@ export default function AudioMVPV2({ open, onClose }) {
     setSongFile(null); setSongBackend(null); setSongUrl('');
     setCleanJob(null); setCleanedPreviewUrl('');
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
-    setMasterJob(null); setError(''); setStatus('');
+    setMasterJob(null); setMasterCacheBust(0); setError(''); setStatus('');
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
+  const bust = masterCacheBust ? `?t=${masterCacheBust}` : '';
   const masterWavUrl = masterDownloads.master_wav ? backendUrl(masterDownloads.master_wav) : '';
   const masterMp3Url = masterDownloads.master_mp3 ? backendUrl(masterDownloads.master_mp3) : '';
-  const masterPreviewUrl = masterDownloads.master_preview ? backendUrl(masterDownloads.master_preview) : '';
+  const masterPreviewUrl = masterDownloads.master_preview ? `${backendUrl(masterDownloads.master_preview)}${bust}` : '';
   const masterRender = masterJob?.result?.render || {};
 
   const reverbLabel = reverbAmount < 0.06 ? 'Dry' : reverbAmount < 0.35 ? 'Room' : reverbAmount < 0.65 ? 'Studio' : reverbAmount < 0.85 ? 'Hall' : 'Cathedral';
@@ -408,13 +414,13 @@ export default function AudioMVPV2({ open, onClose }) {
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
             WAV for distribution and archiving. MP3 320k for fast sharing.
           </p>
-          {masterRender.profile && (
+          {masterJob?.result && (
             <div style={{ ...cardGreen, marginBottom: 16 }}>
               <div style={{ fontWeight: 800, marginBottom: 12 }}>✓ Mastering complete</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
                   ['Platform', PLATFORMS.find(p => p.id === platform)?.label],
-                  ['Target loudness', `${masterRender.target_lufs} LUFS`],
+                  ['Target loudness', `${masterJob.result.target_lufs ?? masterRender.target_lufs ?? _lufsLabel(platform)} LUFS`],
                   ['Style', mode],
                   ['Intensity', `${strength}%`],
                 ].map(([k, v]) => (
@@ -437,18 +443,19 @@ export default function AudioMVPV2({ open, onClose }) {
             {masterMp3Url && <a className="secondary" href={masterMp3Url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Download size={15} /> MP3 320k</a>}
             {masterPreviewUrl && <a className="secondary" href={masterPreviewUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Download size={15} /> 30s preview</a>}
           </div>
-          <div style={card}>
+          <StatusBox message={status} error={error} busy={busy} />
+          <div style={{ ...card, marginTop: 16 }}>
             <div style={{ fontWeight: 800, marginBottom: 4, color: '#55e9ff' }}>Make it hit harder</div>
             <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 13, marginBottom: 14 }}>Re-master with enhanced settings — overwrites current master.</div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-              <button className="primary" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15) })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                ⚡ More punch — {Math.min(100, strength + 15)}%
+              <button className="primary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15) })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                {busy ? '⏳ Re-mastering...' : `⚡ More punch — ${Math.min(100, strength + 15)}%`}
               </button>
-              <button className="secondary" disabled={busy} onClick={() => runMaster({ airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                ✨ More air
+              <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                {busy ? '⏳' : '✨ More air'}
               </button>
-              <button className="secondary" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15), airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                🔥 Both
+              <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15), airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                {busy ? '⏳' : '🔥 Both'}
               </button>
             </div>
             <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
