@@ -77,7 +77,7 @@ class EnhanceMixRequest(BaseModel):
     bus_compress: bool = True
 
 
-
+class SoundGenerateRequest(BaseModel):
     prompt: str
     intensity: int = 68
     genre: str = "Cinematic"
