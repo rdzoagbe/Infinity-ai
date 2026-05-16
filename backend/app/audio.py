@@ -356,22 +356,103 @@ def mix_vocal_beat_with_ffmpeg(
     }
 
 
-def _profile_for_mode(mode: str) -> dict:
-    normalized = (mode or "custom").lower()
-    profiles = {
-        "trap": {"low_boost": 1.8, "presence": 1.0, "air": 0.8, "compressor_ratio": 3.2, "target_lufs": -9},
-        "afrobeat": {"low_boost": 1.2, "presence": 1.4, "air": 1.0, "compressor_ratio": 2.4, "target_lufs": -10},
-        "drill": {"low_boost": 1.7, "presence": 1.1, "air": 0.7, "compressor_ratio": 3.0, "target_lufs": -9},
-        "house": {"low_boost": 1.3, "presence": 1.0, "air": 1.2, "compressor_ratio": 2.6, "target_lufs": -8},
-        "gospel": {"low_boost": 0.8, "presence": 1.5, "air": 1.4, "compressor_ratio": 2.1, "target_lufs": -11},
-        "cinematic": {"low_boost": 0.9, "presence": 0.8, "air": 1.7, "compressor_ratio": 1.8, "target_lufs": -14},
-        "soul": {"low_boost": 0.9, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.0, "target_lufs": -12},
-        "experimental": {"low_boost": 1.0, "presence": 1.0, "air": 1.5, "compressor_ratio": 2.0, "target_lufs": -12},
-    }
-    for key, profile in profiles.items():
-        if key in normalized:
-            return {"name": key.title(), **profile}
-    return {"name": "Custom AI adaptive", "low_boost": 1.0, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.4, "target_lufs": -11}
+def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, float, float]:
+    """Return (eq_filters, compress_ratio, compress_threshold_db, stereo_width) per genre."""
+    i = intensity
+
+    if genre_key == "trap":
+        # Deep sub punch + bright airy top + aggressive glue
+        return (
+            [
+                f"bass=g={3.5 * i:.1f}:f=65",               # sub punch at 65 Hz
+                f"equalizer=f=200:t=q:w=1.2:g={-1.5 * i:.2f}",  # mud cut
+                f"equalizer=f=3500:t=q:w=1.0:g={1.5 * i:.2f}",  # presence
+                f"treble=g={2.5 * i:.2f}:f=10000",            # airy highs
+            ],
+            4.0, -16.0, 1.5,
+        )
+
+    if genre_key == "drill":
+        # Heavy sub, dark mids, punchy & unforgiving
+        return (
+            [
+                f"bass=g={4.5 * i:.1f}:f=55",               # deep sub at 55 Hz
+                f"equalizer=f=150:t=q:w=1.0:g={1.5 * i:.2f}",   # body/kick weight
+                f"equalizer=f=3000:t=q:w=1.5:g={-2.5 * i:.2f}", # cut harshness
+                f"equalizer=f=9000:t=q:w=1.0:g={-1.5 * i:.2f}", # dark top-end
+            ],
+            5.0, -14.0, 1.2,
+        )
+
+    if genre_key == "afrobeat":
+        # Warm low-mids, percussive punch, vocal presence, groove
+        return (
+            [
+                f"equalizer=f=80:t=q:w=0.9:g={2.0 * i:.2f}",    # kick/bass punch
+                f"equalizer=f=280:t=q:w=1.0:g={2.0 * i:.2f}",   # warmth / low-mid groove
+                f"equalizer=f=4000:t=q:w=1.0:g={2.0 * i:.2f}",  # vocal & percussion presence
+                f"treble=g={1.2 * i:.2f}:f=10000",               # subtle air
+            ],
+            2.5, -20.0, 1.35,
+        )
+
+    if genre_key == "house":
+        # Pumping kick energy, driving low end, bright & energetic
+        return (
+            [
+                f"equalizer=f=85:t=q:w=0.8:g={3.0 * i:.2f}",    # kick weight
+                f"equalizer=f=500:t=q:w=1.5:g={-1.0 * i:.2f}",  # boxiness cut
+                f"equalizer=f=3500:t=q:w=1.0:g={1.5 * i:.2f}",  # energy & presence
+                f"treble=g={2.0 * i:.2f}:f=10000",               # sparkle
+            ],
+            3.5, -15.0, 1.4,
+        )
+
+    if genre_key == "gospel":
+        # Vocal warmth, choir presence, transparent dynamics, full & rich
+        return (
+            [
+                f"equalizer=f=200:t=q:w=1.0:g={1.8 * i:.2f}",   # vocal warmth
+                f"equalizer=f=800:t=q:w=1.5:g={-1.0 * i:.2f}",  # boxy cut
+                f"equalizer=f=4000:t=q:w=0.9:g={2.5 * i:.2f}",  # vocal presence & clarity
+                f"treble=g={2.0 * i:.2f}:f=11000",               # choir air
+            ],
+            2.0, -22.0, 1.25,
+        )
+
+    if genre_key == "cinematic":
+        # Wide stereo, musical dynamics preserved, orchestral space
+        return (
+            [
+                "highpass=f=40",                                   # clean sub (tighter)
+                f"equalizer=f=120:t=q:w=1.0:g={-1.0 * i:.2f}",  # tame low rumble
+                f"equalizer=f=2500:t=q:w=1.2:g={1.0 * i:.2f}",  # detail
+                f"treble=g={2.5 * i:.2f}:f=12000",               # spacious air
+            ],
+            1.6, -28.0, 1.6,
+        )
+
+    if genre_key == "soul":
+        # Vintage warmth, smooth midrange, silky highs
+        return (
+            [
+                f"equalizer=f=120:t=q:w=0.9:g={1.5 * i:.2f}",   # warm bass
+                f"equalizer=f=350:t=q:w=1.0:g={2.0 * i:.2f}",   # vintage low-mid warmth
+                f"equalizer=f=4500:t=q:w=0.9:g={1.8 * i:.2f}",  # vocal silk
+                f"treble=g={1.0 * i:.2f}:f=10000",               # smooth top
+            ],
+            2.2, -22.0, 1.2,
+        )
+
+    # Default: Custom AI adaptive — balanced for all genres
+    return (
+        [
+            f"equalizer=f=90:t=q:w=1.0:g={1.2 * i:.2f}",
+            f"equalizer=f=3200:t=q:w=1.1:g={1.3 * i:.2f}",
+            f"treble=g={1.5 * i:.2f}:f=11000",
+        ],
+        2.4, -20.0, 1.3,
+    )
 
 
 def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False) -> dict:
@@ -381,45 +462,47 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
 
     safe_strength = max(0, min(100, int(strength)))
     intensity = safe_strength / 100
-    profile = _profile_for_mode(mode)
-    profile["target_lufs"] = _lufs_for_platform(platform)
+    genre_key = (mode or "custom").lower().strip()
+    # Normalise common spellings
+    genre_key = "afrobeat" if "afro" in genre_key else genre_key
+    genre_key = "cinematic" if genre_key not in {"trap", "drill", "afrobeat", "house", "gospel", "soul", "experimental"} and "custom" not in genre_key else genre_key
+
+    target_lufs = _lufs_for_platform(platform)
     wav_path = output_dir / "mastered.wav"
     mp3_path = output_dir / "mastered.mp3"
     preview_path = output_dir / "mastered-preview.mp3"
 
-    compressor_threshold = round(-24 + (intensity * 8), 2)
-    makeup = round(1.0 + intensity * 1.4, 2)
-    limit = round(0.90 + intensity * 0.08, 3)
-    target_lufs = profile["target_lufs"]
-    stereo_width = round(1.0 + 0.25 * intensity, 2)  # 1.0–1.25× side boost
+    genre_eq, compress_ratio, compress_threshold, stereo_width = _genre_filters(genre_key, intensity)
 
-    filters = [
-        "highpass=f=30",           # tighter sub-bass cleanup (was 25Hz — debris below 30Hz eats headroom)
-        "lowpass=f=19000",
-        f"equalizer=f=95:t=q:w=1.0:g={profile['low_boost'] * intensity:.2f}",
-        f"equalizer=f=3200:t=q:w=1.1:g={profile['presence'] * intensity:.2f}",
-        f"equalizer=f=8000:t=q:w=1.5:g=-1.5",  # sibilance control — always on, -1.5dB at 8kHz
-        f"treble=g={profile['air'] * intensity * 2:.2f}:f=11000",  # air shelf (proper shelf, not bell)
-        *(["treble=g=2.5:f=12000"] if air_boost else []),           # extra air when requested
-        f"acompressor=threshold={compressor_threshold}dB:ratio={profile['compressor_ratio']}:attack=18:release=180:makeup={makeup}",
-        f"extrastereo=m={stereo_width}",  # gentle stereo widening scaled to strength
-        f"loudnorm=I={target_lufs}:TP=-1.5:LRA=10",
-        f"alimiter=limit={limit}",
+    makeup = round(1.0 + intensity * 1.2, 2)
+    limit = round(0.91 + intensity * 0.07, 3)
+
+    filters: list[str] = [
+        "highpass=f=30",                                          # remove sub-bass rumble
+        "lowpass=f=19000",                                        # gentle top rolloff
+        *genre_eq,                                                # genre-specific EQ shaping
+        "equalizer=f=8000:t=q:w=1.5:g=-1.5",                    # de-ess / sibilance control (always on)
+        *(["treble=g=2.5:f=12000"] if air_boost else []),        # extra brightness if requested
+        # Transparent soft-knee compression — musical, not robotic
+        f"acompressor=threshold={compress_threshold:.1f}dB:ratio={compress_ratio}:attack=20:release=200:knee=4:makeup={makeup}",
+        f"extrastereo=m={stereo_width:.2f}",                     # genre-tuned stereo width
+        f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11",             # streaming loudness (LRA=11 keeps dynamics)
+        f"alimiter=limit={limit}",                               # true-peak ceiling
     ]
     audio_filter = ",".join(filters)
 
     wav_cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", audio_filter, "-ar", "44100", "-ac", "2", str(wav_path)]
-    code, stdout, stderr = run_command(wav_cmd, timeout=60 * 10)
+    code, _stdout, stderr = run_command(wav_cmd, timeout=60 * 10)
     if code != 0:
-        return {"status": "failed", "stderr": stderr[-4000:], "command": " ".join(wav_cmd), "profile": profile}
+        return {"status": "failed", "stderr": stderr[-4000:], "command": " ".join(wav_cmd)}
 
     mp3_cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-b:a", "320k", str(mp3_path)]
-    mp3_code, mp3_stdout, mp3_stderr = run_command(mp3_cmd, timeout=60 * 5)
+    mp3_code, _, mp3_stderr = run_command(mp3_cmd, timeout=60 * 5)
 
     preview_cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-t", "30", "-codec:a", "libmp3lame", "-b:a", "192k", str(preview_path)]
-    preview_code, preview_stdout, preview_stderr = run_command(preview_cmd, timeout=60 * 3)
+    preview_code, _, preview_stderr = run_command(preview_cmd, timeout=60 * 3)
 
-    outputs = {"wav": str(wav_path), "wav_exists": wav_path.exists()}
+    outputs: dict = {"wav": str(wav_path), "wav_exists": wav_path.exists()}
     if mp3_code == 0:
         outputs["mp3"] = str(mp3_path)
         outputs["mp3_exists"] = mp3_path.exists()
@@ -434,17 +517,22 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     return {
         "status": "completed",
         "mode": mode,
+        "genre": genre_key,
         "platform": platform,
-        "profile": profile,
         "strength": safe_strength,
         "target_lufs": target_lufs,
         "filter_chain": audio_filter,
-        "steps": ["sub-bass cleanup (30Hz HPF)", "genre EQ shaping", "sibilance control (8kHz)", "air shelf (11kHz)", "intelligent compression", "stereo widening", "streaming loudness normalization", "true-peak limiting", "WAV/MP3/preview render"],
+        "steps": [
+            "sub-bass cleanup (30 Hz HPF)",
+            f"genre EQ — {genre_key.title()} shaping",
+            "sibilance control (8 kHz, always on)",
+            "transparent soft-knee compression",
+            "stereo widening",
+            "streaming loudness normalisation",
+            "true-peak limiting",
+            "WAV + 320k MP3 + 30s preview render",
+        ],
         "outputs": outputs,
-        "before_after": {
-            "original": "Use /api/v1/files/{file_id}/download/original",
-            "master_preview": "Use /api/v1/files/{file_id}/download/master-preview",
-        },
     }
 
 
