@@ -69,7 +69,15 @@ class MixVocalBeatRequest(BaseModel):
     reverb_amount: float = 0.2  # 0.0 = dry, 1.0 = large hall
 
 
-class SoundGenerateRequest(BaseModel):
+class EnhanceMixRequest(BaseModel):
+    file_id: str
+    presence_boost: bool = True
+    reverb_amount: float = 0.2
+    stereo_width: float = 1.3
+    bus_compress: bool = True
+
+
+
     prompt: str
     intensity: int = 68
     genre: str = "Cinematic"

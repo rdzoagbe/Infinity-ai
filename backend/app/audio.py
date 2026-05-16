@@ -176,6 +176,107 @@ def clean_vocals_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
     }
 
 
+def clean_full_mix_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
+    """Clean a fully-mixed song (beat + vocals already together)."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available in this environment."}
+
+    cleaned_wav = output_dir / "mix-cleaned.wav"
+    cleaned_mp3 = output_dir / "mix-cleaned.mp3"
+
+    filters = [
+        "highpass=f=30",                               # remove sub-bass rumble
+        "lowpass=f=18000",                             # gentle top-end rolloff
+        "afftdn=nf=-20",                               # noise floor reduction
+        "equalizer=f=7000:t=q:w=1.5:g=-2",            # light de-essing
+        "acompressor=threshold=-18dB:ratio=1.8:attack=15:release=150:makeup=1.5",
+        "loudnorm=I=-16:TP=-1.5:LRA=10",
+    ]
+
+    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", ",".join(filters), "-ar", "44100", "-ac", "2", str(cleaned_wav)]
+    code, _stdout, stderr = run_command(cmd, timeout=300)
+    if code != 0:
+        return {"status": "failed", "stderr": stderr[-2000:]}
+
+    mp3_cmd = ["ffmpeg", "-y", "-i", str(cleaned_wav), "-codec:a", "libmp3lame", "-b:a", "320k", str(cleaned_mp3)]
+    mp3_code, _, _ = run_command(mp3_cmd, timeout=120)
+
+    return {
+        "status": "completed",
+        "wav": str(cleaned_wav),
+        "wav_exists": cleaned_wav.exists(),
+        "mp3": str(cleaned_mp3) if mp3_code == 0 else None,
+        "mp3_exists": cleaned_mp3.exists() if mp3_code == 0 else False,
+        "filter_chain": ",".join(filters),
+        "steps": [
+            "sub-bass rumble removal (30 Hz high-pass)",
+            "gentle top-end rolloff (18 kHz low-pass)",
+            "noise floor reduction (afftdn −20 dB)",
+            "light de-essing at 7 kHz (−2 dB)",
+            "gentle mix compression (1.8:1 ratio)",
+            "loudness normalization (−16 LUFS / −1.5 dBTP)",
+        ],
+    }
+
+
+def enhance_mix_with_ffmpeg(
+    input_path: Path,
+    output_dir: Path,
+    presence_boost: bool = True,
+    reverb_amount: float = 0.2,
+    stereo_width: float = 1.3,
+    bus_compress: bool = True,
+) -> dict:
+    """Apply mix bus enhancements (EQ, reverb, stereo, compression) to a single file."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available in this environment."}
+
+    enhanced_wav = output_dir / "enhanced.wav"
+    enhanced_mp3 = output_dir / "enhanced.mp3"
+
+    rv = max(0.0, min(1.0, float(reverb_amount)))
+    sw = max(1.0, min(2.5, float(stereo_width)))
+
+    filters = []
+    if presence_boost:
+        filters += [
+            "equalizer=f=3500:t=q:w=1.0:g=1.5",  # subtle presence lift
+            "treble=g=1.2:f=12000",                 # air shelf
+        ]
+    if rv > 0.05:
+        delay_ms = round(40 + rv * 160)
+        decay = round(0.15 + rv * 0.45, 2)
+        filters.append(f"aecho=0.8:0.88:{delay_ms}:{decay}")
+    if sw > 1.0:
+        filters.append(f"extrastereo=m={sw:.1f}")
+    if bus_compress:
+        filters.append("acompressor=threshold=-12dB:ratio=2:attack=5:release=80:makeup=1.2")
+    filters.append("alimiter=limit=0.95")
+
+    af = ",".join(filters)
+    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", af, "-ar", "44100", "-ac", "2", str(enhanced_wav)]
+    code, _stdout, stderr = run_command(cmd, timeout=300)
+    if code != 0:
+        return {"status": "failed", "stderr": stderr[-2000:]}
+
+    mp3_cmd = ["ffmpeg", "-y", "-i", str(enhanced_wav), "-codec:a", "libmp3lame", "-b:a", "320k", str(enhanced_mp3)]
+    mp3_code, _, _ = run_command(mp3_cmd, timeout=120)
+
+    return {
+        "status": "completed",
+        "presence_boost": presence_boost,
+        "reverb_amount": rv,
+        "stereo_width": sw,
+        "bus_compress": bus_compress,
+        "wav": str(enhanced_wav),
+        "wav_exists": enhanced_wav.exists(),
+        "mp3": str(enhanced_mp3) if mp3_code == 0 else None,
+        "mp3_exists": enhanced_mp3.exists() if mp3_code == 0 else False,
+    }
+
+
 def mix_vocal_beat_with_ffmpeg(
     vocal_path: Path,
     beat_path: Path,
