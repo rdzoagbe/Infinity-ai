@@ -30,11 +30,11 @@ const PLATFORMS = [
 const MODES = ['Custom AI adaptive', 'Trap', 'Afrobeat', 'Drill', 'House', 'Gospel', 'Cinematic', 'Soul', 'Experimental'];
 
 const HIT_HARDER_TIPS = [
-  'Boost 3–5 kHz on the vocals to cut through the mix with more presence.',
-  'Add subtle stereo widening on the beat to make the low end feel bigger.',
-  'Raise AI strength to 85–90% for a more aggressive, punchy master.',
-  'Side-chain the kick to the bass for that modern pumping low end.',
-  'Try a high-shelf boost at 12 kHz on the master for extra air and sparkle.',
+  'Vocal presence boost (+2.5 dB at 3.5 kHz) so vocals cut through the beat.',
+  'Beat stereo widening (extrastereo) for a bigger, wider low end.',
+  'Mix bus compression + true-peak limiter for a cohesive, radio-ready feel.',
+  'Sibilance control (−1.5 dB at 8 kHz) to tame harsh "s" sounds on the master.',
+  'Stereo width scaled to strength — wider master as you push the AI harder.',
 ];
 
 const overlay = { position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,.74)', overflowY: 'auto', padding: 18 };
@@ -147,6 +147,9 @@ export default function AudioMVPV2({ open, onClose }) {
   // mix
   const [vocalGain, setVocalGain] = useState(1.0);
   const [beatGain, setBeatGain] = useState(0.85);
+  const [vocalPresenceBoost, setVocalPresenceBoost] = useState(true);
+  const [beatStereoWidth, setBeatStereoWidth] = useState(1.5);
+  const [busCompress, setBusCompress] = useState(true);
   const [mixJob, setMixJob] = useState(null);
   const [mixedFileId, setMixedFileId] = useState(null);
   const [mixedPreviewUrl, setMixedPreviewUrl] = useState('');
@@ -251,7 +254,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setError('');
     setStatus('Mixing vocals with beat...');
     try {
-      const job = await mixVocalBeatOnBackend(vocalBackend.file_id, beatBackend.file_id, vocalGain, beatGain);
+      const job = await mixVocalBeatOnBackend(vocalBackend.file_id, beatBackend.file_id, vocalGain, beatGain, vocalPresenceBoost, beatStereoWidth, busCompress);
       setMixJob(job);
       const mid = job?.result?.mixed_file_id;
       if (mid) {
@@ -267,18 +270,19 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
-  const runMaster = async () => {
+  const runMaster = async ({ overrideStrength, airBoost = false } = {}) => {
     const targetId = mixedFileId || vocalBackend?.file_id;
     if (!targetId) return;
+    const s = overrideStrength ?? strength;
     const platformLabel = PLATFORMS.find(p => p.id === platform)?.label || platform;
     setBusy(true);
     setError('');
-    setStatus(`Mastering for ${platformLabel}...`);
+    setStatus(`Mastering for ${platformLabel}${airBoost ? ' + air boost' : ''}${overrideStrength ? ' (more punch)' : ''}...`);
     try {
-      const job = await masterAudioOnBackend(targetId, mode, strength, platform);
+      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost);
       setMasterJob(job);
       setStatus('Mastering complete. Your files are ready.');
-      go(6);
+      if (step !== 6) go(6);
     } catch (err) {
       setError(`Mastering failed: ${safeError(err)}`);
     } finally {
@@ -293,6 +297,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setMixJob(null); setMixedFileId(null); setMixedPreviewUrl('');
     setMasterJob(null); setError(''); setStatus('');
     setVocalGain(1.0); setBeatGain(0.85);
+    setVocalPresenceBoost(true); setBeatStereoWidth(1.5); setBusCompress(true);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -409,6 +414,24 @@ export default function AudioMVPV2({ open, onClose }) {
               <input type="range" min="0" max="200" value={Math.round(beatGain * 100)} onChange={e => setBeatGain(Number(e.target.value) / 100)} style={{ width: '100%' }} />
             </label>
           </div>
+          <div style={{ ...card, marginTop: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 14 }}>Mix enhancements</div>
+            {[
+              { label: 'Vocal presence boost', sub: '+2.5 dB at 3.5 kHz + air shelf at 12 kHz — vocals cut through the beat', val: vocalPresenceBoost, set: setVocalPresenceBoost, color: '#55e9ff' },
+              { label: 'Widen beat', sub: `Stereo widening on beat (${beatStereoWidth}×) — bigger, more spacious sound`, val: beatStereoWidth > 1.0, set: (on) => setBeatStereoWidth(on ? 1.5 : 1.0), color: '#ff4de1' },
+              { label: 'Bus compression', sub: 'Glue compressor + true-peak limiter on the mix output — cohesive, radio-ready feel', val: busCompress, set: setBusCompress, color: '#57f09c' },
+            ].map(({ label, sub, val, set, color }) => (
+              <div key={label} data-infinity-local-action="true" onClick={() => set(!val)} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}>
+                <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${val ? color : 'rgba(255,255,255,.2)'}`, background: val ? `${color}22` : 'transparent', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color }}>
+                  {val ? '✓' : ''}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: val ? color : '#f5f8ff' }}>{label}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 3, lineHeight: 1.5 }}>{sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
           {mixedPreviewUrl && (
             <div style={{ ...cardGreen, marginTop: 14 }}>
               <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Mix complete — preview:</div>
@@ -451,7 +474,7 @@ export default function AudioMVPV2({ open, onClose }) {
               <audio controls src={mixedPreviewUrl} style={{ width: '100%' }} />
             </div>
           )}
-          <button className="primary" onClick={runMaster} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="primary" onClick={() => runMaster()} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Sparkles size={16} /> {busy ? 'Mastering...' : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
           </button>
           <StatusBox message={status} error={error} busy={busy} />
@@ -495,12 +518,27 @@ export default function AudioMVPV2({ open, onClose }) {
             {masterPreviewUrl && <a className="secondary" href={masterPreviewUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Download size={15} /> 30s preview</a>}
           </div>
           <div style={card}>
-            <div style={{ fontWeight: 800, marginBottom: 12, color: '#55e9ff' }}>Ways to make it hit harder</div>
-            {HIT_HARDER_TIPS.map((tip, i) => (
-              <div key={i} style={{ color: 'rgba(245,248,255,.68)', fontSize: 14, padding: '8px 0', borderBottom: i < HIT_HARDER_TIPS.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none', lineHeight: 1.5 }}>
-                <span style={{ color: '#55e9ff', fontWeight: 800, marginRight: 8 }}>{i + 1}.</span>{tip}
-              </div>
-            ))}
+            <div style={{ fontWeight: 800, marginBottom: 4, color: '#55e9ff' }}>Make it hit harder</div>
+            <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 13, marginBottom: 14 }}>Re-master with enhanced settings — overwrites current master.</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+              <button className="primary" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15) })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                ⚡ More punch — strength {Math.min(100, strength + 15)}%
+              </button>
+              <button className="secondary" disabled={busy} onClick={() => runMaster({ airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                ✨ More air — +2.5 dB at 12 kHz
+              </button>
+              <button className="secondary" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15), airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                🔥 Both
+              </button>
+            </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
+              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Already applied in your master</div>
+              {HIT_HARDER_TIPS.map((tip, i) => (
+                <div key={i} style={{ color: 'rgba(245,248,255,.55)', fontSize: 13, padding: '6px 0', borderBottom: i < HIT_HARDER_TIPS.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none', lineHeight: 1.5 }}>
+                  <span style={{ color: '#57f09c', marginRight: 8 }}>✓</span>{tip}
+                </div>
+              ))}
+            </div>
           </div>
           <NavRow
             onBack={() => go(5)}

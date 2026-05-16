@@ -51,6 +51,7 @@ class ProcessRequest(BaseModel):
     mode: str = "Custom AI adaptive"
     strength: int = 72
     platform: str = "spotify"
+    air_boost: bool = False
 
 
 class CleanVocalsRequest(BaseModel):
@@ -62,6 +63,9 @@ class MixVocalBeatRequest(BaseModel):
     beat_file_id: str
     vocal_gain: float = 1.0
     beat_gain: float = 0.85
+    vocal_presence_boost: bool = True
+    beat_stereo_width: float = 1.5
+    bus_compress: bool = True
 
 
 class SoundGenerateRequest(BaseModel):
