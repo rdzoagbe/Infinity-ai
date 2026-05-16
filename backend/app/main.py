@@ -6,9 +6,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .audio import clean_vocals_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
+from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
-from .models import AnalyzeRequest, CleanVocalsRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
+from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, load_store, make_id, save_store
 
 settings = get_settings()
@@ -198,6 +198,10 @@ def download_file(file_id: str, asset_type: str):
         "cleaned-mp3": workspace / "renders" / "vocals-cleaned.mp3",
         "mixed-wav": workspace / "renders" / "mixed.wav",
         "mixed-mp3": workspace / "renders" / "mixed.mp3",
+        "mix-cleaned-wav": workspace / "renders" / "mix-cleaned.wav",
+        "mix-cleaned-mp3": workspace / "renders" / "mix-cleaned.mp3",
+        "enhanced-wav": workspace / "renders" / "enhanced.wav",
+        "enhanced-mp3": workspace / "renders" / "enhanced.mp3",
     }
     if asset_type.startswith("stem-"):
         stem_name = asset_type.replace("stem-", "", 1)
@@ -212,6 +216,65 @@ def download_file(file_id: str, asset_type: str):
     _media_types = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac", ".webm": "audio/webm", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".json": "application/json"}
     media_type = _media_types.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media_type, filename=path.name)
+
+@app.post("/api/v1/audio/clean-mix")
+def clean_mix(payload: AnalyzeRequest):
+    file_data = get_file_or_404(payload.file_id)
+    input_path = Path(file_data["stored_path"])
+    output_dir = Path(file_data["workspace"]) / "renders"
+    job = create_job(JobType.clean_vocals, message="Mix cleaning started")
+    result_data = clean_full_mix_with_ffmpeg(input_path, output_dir)
+    downloads = {}
+    if result_data.get("status") == "completed":
+        downloads["cleaned_wav"] = f"/api/v1/files/{payload.file_id}/download/mix-cleaned-wav"
+        if result_data.get("mp3_exists"):
+            downloads["cleaned_mp3"] = f"/api/v1/files/{payload.file_id}/download/mix-cleaned-mp3"
+    result = {"file_id": payload.file_id, "clean": result_data, "downloads": downloads}
+    msg = "Mix cleaning complete" if result_data.get("status") == "completed" else f"Mix cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
+
+@app.post("/api/v1/audio/enhance-mix")
+def enhance_mix(payload: EnhanceMixRequest):
+    file_data = get_file_or_404(payload.file_id)
+    cleaned_path = Path(file_data["workspace"]) / "renders" / "mix-cleaned.wav"
+    input_path = cleaned_path if cleaned_path.exists() else Path(file_data["stored_path"])
+    output_dir = Path(file_data["workspace"]) / "renders"
+    job = create_job(JobType.mix, message="Mix enhancement started")
+    result_data = enhance_mix_with_ffmpeg(input_path, output_dir, payload.presence_boost, payload.reverb_amount, payload.stereo_width, payload.bus_compress)
+
+    enhanced_file_id = None
+    if result_data.get("status") == "completed":
+        enhanced_wav_path = Path(result_data["wav"])
+        enhanced_file_id = make_id("file")
+        enhanced_workspace = file_workspace(enhanced_file_id)
+        dest = enhanced_workspace / "original" / "enhanced.wav"
+        shutil.copy2(enhanced_wav_path, dest)
+        FILES[enhanced_file_id] = {
+            "file_id": enhanced_file_id, "filename": "enhanced.wav",
+            "content_type": "audio/wav", "size_bytes": dest.stat().st_size,
+            "stored_path": str(dest), "workspace": str(enhanced_workspace),
+            "metadata": read_basic_audio_metadata(dest),
+            "parent_file_id": payload.file_id,
+            "downloads": {"original": f"/api/v1/files/{enhanced_file_id}/download/original"},
+        }
+        save_store()
+
+    downloads = {}
+    if result_data.get("status") == "completed":
+        downloads["enhanced_wav"] = f"/api/v1/files/{payload.file_id}/download/enhanced-wav"
+        if result_data.get("mp3_exists"):
+            downloads["enhanced_mp3"] = f"/api/v1/files/{payload.file_id}/download/enhanced-mp3"
+        if enhanced_file_id:
+            downloads["enhanced_original"] = f"/api/v1/files/{enhanced_file_id}/download/original"
+
+    result = {
+        "file_id": payload.file_id, "enhanced_file_id": enhanced_file_id,
+        "enhance": result_data, "downloads": downloads,
+    }
+    msg = "Mix enhancement complete" if result_data.get("status") == "completed" else f"Mix enhancement failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
 
 @app.post("/api/v1/vocal/clean")
 def clean_vocals(payload: CleanVocalsRequest):

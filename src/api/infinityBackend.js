@@ -70,6 +70,30 @@ export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", 
   return parseResponse(response, "Mastering job failed");
 }
 
+export async function cleanFullMixOnBackend(fileId) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/clean-mix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  return parseResponse(response, "Mix cleaning failed");
+}
+
+export async function enhanceMixOnBackend(fileId, presenceBoost = true, reverbAmount = 0.2, stereoWidth = 1.3, busCompress = true) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/enhance-mix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file_id: fileId,
+      presence_boost: presenceBoost,
+      reverb_amount: reverbAmount,
+      stereo_width: stereoWidth,
+      bus_compress: busCompress,
+    }),
+  });
+  return parseResponse(response, "Mix enhancement failed");
+}
+
 export async function cleanVocalsOnBackend(fileId) {
   const response = await fetch(`${API_BASE}/api/v1/vocal/clean`, {
     method: "POST",
