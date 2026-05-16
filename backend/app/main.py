@@ -248,6 +248,7 @@ def mix_vocal_beat(payload: MixVocalBeatRequest):
         vocal_path, beat_path, output_dir,
         payload.vocal_gain, payload.beat_gain,
         payload.vocal_presence_boost, payload.beat_stereo_width, payload.bus_compress,
+        payload.reverb_amount,
     )
 
     mixed_file_id = None
