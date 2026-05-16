@@ -115,6 +115,115 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
     }
 
 
+PLATFORM_LUFS: dict[str, int] = {
+    "spotify": -14,
+    "apple": -16,
+    "apple_music": -16,
+    "youtube": -14,
+    "soundcloud": -10,
+    "tidal": -14,
+    "amazon": -14,
+    "deezer": -15,
+    "streaming": -14,
+}
+
+
+def _lufs_for_platform(platform: str) -> int:
+    key = (platform or "spotify").lower().replace(" ", "_").replace("-", "_")
+    return PLATFORM_LUFS.get(key, -14)
+
+
+def clean_vocals_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available in this environment."}
+
+    cleaned_wav = output_dir / "vocals-cleaned.wav"
+    cleaned_mp3 = output_dir / "vocals-cleaned.mp3"
+
+    filters = [
+        "highpass=f=80",
+        "lowpass=f=16000",
+        "afftdn=nf=-20",
+        "equalizer=f=7000:t=q:w=2.0:g=-3",
+        "acompressor=threshold=-18dB:ratio=2.5:attack=10:release=100:makeup=2",
+        "loudnorm=I=-16:TP=-1.5:LRA=8",
+    ]
+
+    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", ",".join(filters), "-ar", "44100", "-ac", "2", str(cleaned_wav)]
+    code, _stdout, stderr = run_command(cmd, timeout=300)
+    if code != 0:
+        return {"status": "failed", "stderr": stderr[-2000:]}
+
+    mp3_cmd = ["ffmpeg", "-y", "-i", str(cleaned_wav), "-codec:a", "libmp3lame", "-b:a", "320k", str(cleaned_mp3)]
+    mp3_code, _, _ = run_command(mp3_cmd, timeout=120)
+
+    return {
+        "status": "completed",
+        "wav": str(cleaned_wav),
+        "wav_exists": cleaned_wav.exists(),
+        "mp3": str(cleaned_mp3) if mp3_code == 0 else None,
+        "mp3_exists": cleaned_mp3.exists() if mp3_code == 0 else False,
+        "filter_chain": ",".join(filters),
+        "steps": [
+            "low-end rumble removal (80 Hz high-pass)",
+            "high-frequency rolloff (16 kHz low-pass)",
+            "AI noise floor reduction (afftdn −20 dB)",
+            "de-essing at 7 kHz (−3 dB notch)",
+            "light vocal compression (2.5:1 ratio)",
+            "loudness normalization (−16 LUFS / −1.5 dBTP)",
+        ],
+    }
+
+
+def mix_vocal_beat_with_ffmpeg(
+    vocal_path: Path,
+    beat_path: Path,
+    output_dir: Path,
+    vocal_gain: float = 1.0,
+    beat_gain: float = 0.85,
+) -> dict:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available in this environment."}
+
+    vg = max(0.0, min(2.0, float(vocal_gain)))
+    bg = max(0.0, min(2.0, float(beat_gain)))
+    mixed_wav = output_dir / "mixed.wav"
+    mixed_mp3 = output_dir / "mixed.mp3"
+
+    filter_complex = (
+        f"[0:a]volume={vg}[v];"
+        f"[1:a]volume={bg}[b];"
+        "[v][b]amix=inputs=2:duration=longest:normalize=0[out]"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(vocal_path),
+        "-i", str(beat_path),
+        "-filter_complex", filter_complex,
+        "-map", "[out]",
+        "-ar", "44100", "-ac", "2",
+        str(mixed_wav),
+    ]
+    code, _stdout, stderr = run_command(cmd, timeout=600)
+    if code != 0:
+        return {"status": "failed", "stderr": stderr[-2000:]}
+
+    mp3_cmd = ["ffmpeg", "-y", "-i", str(mixed_wav), "-codec:a", "libmp3lame", "-b:a", "320k", str(mixed_mp3)]
+    mp3_code, _, _ = run_command(mp3_cmd, timeout=180)
+
+    return {
+        "status": "completed",
+        "vocal_gain": vg,
+        "beat_gain": bg,
+        "wav": str(mixed_wav),
+        "wav_exists": mixed_wav.exists(),
+        "mp3": str(mixed_mp3) if mp3_code == 0 else None,
+        "mp3_exists": mixed_mp3.exists() if mp3_code == 0 else False,
+    }
+
+
 def _profile_for_mode(mode: str) -> dict:
     normalized = (mode or "custom").lower()
     profiles = {
@@ -133,7 +242,7 @@ def _profile_for_mode(mode: str) -> dict:
     return {"name": "Custom AI adaptive", "low_boost": 1.0, "presence": 1.2, "air": 1.1, "compressor_ratio": 2.4, "target_lufs": -11}
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int) -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify") -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -141,6 +250,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     safe_strength = max(0, min(100, int(strength)))
     intensity = safe_strength / 100
     profile = _profile_for_mode(mode)
+    profile["target_lufs"] = _lufs_for_platform(platform)
     wav_path = output_dir / "mastered.wav"
     mp3_path = output_dir / "mastered.mp3"
     preview_path = output_dir / "mastered-preview.mp3"
@@ -188,6 +298,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     return {
         "status": "completed",
         "mode": mode,
+        "platform": platform,
         "profile": profile,
         "strength": safe_strength,
         "target_lufs": target_lufs,

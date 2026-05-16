@@ -18,6 +18,8 @@ class JobType(str, Enum):
     separate_stems = "separate_stems"
     generate_sound = "generate_sound"
     export = "export"
+    clean_vocals = "clean_vocals"
+    mix_vocal_beat = "mix_vocal_beat"
 
 
 class AudioFileMetadata(BaseModel):
@@ -48,6 +50,18 @@ class ProcessRequest(BaseModel):
     file_id: str
     mode: str = "Custom AI adaptive"
     strength: int = 72
+    platform: str = "spotify"
+
+
+class CleanVocalsRequest(BaseModel):
+    file_id: str
+
+
+class MixVocalBeatRequest(BaseModel):
+    vocal_file_id: str
+    beat_file_id: str
+    vocal_gain: float = 1.0
+    beat_gain: float = 0.85
 
 
 class SoundGenerateRequest(BaseModel):

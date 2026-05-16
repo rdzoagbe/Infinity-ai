@@ -1,3 +1,5 @@
+import json
+import threading
 from datetime import datetime
 from uuid import uuid4
 from .models import Job, JobStatus, JobType
@@ -6,6 +8,40 @@ JOBS: dict[str, Job] = {}
 PROJECTS: dict[str, dict] = {}
 FILES: dict[str, dict] = {}
 SOUND_ASSETS: dict[str, dict] = {}
+
+_lock = threading.Lock()
+_store_path = None
+
+
+def _get_store_path():
+    global _store_path
+    if _store_path is None:
+        from .config import get_settings
+        _store_path = get_settings().storage_path / "_store.json"
+    return _store_path
+
+
+def load_store() -> None:
+    try:
+        path = _get_store_path()
+        if not path.exists():
+            return
+        data = json.loads(path.read_text(encoding="utf-8"))
+        FILES.update(data.get("files", {}))
+        PROJECTS.update(data.get("projects", {}))
+    except Exception:
+        pass
+
+
+def save_store() -> None:
+    try:
+        with _lock:
+            _get_store_path().write_text(
+                json.dumps({"files": dict(FILES), "projects": dict(PROJECTS)}, indent=2, default=str),
+                encoding="utf-8",
+            )
+    except Exception:
+        pass
 
 
 def make_id(prefix: str) -> str:
