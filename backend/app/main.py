@@ -68,7 +68,7 @@ async def upload_audio(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
     suffix = Path(file.filename).suffix.lower()
-    allowed = {".mp3", ".wav", ".flac", ".zip", ".m4a", ".aac", ".ogg"}
+    allowed = {".mp3", ".wav", ".flac", ".zip", ".m4a", ".aac", ".ogg", ".webm"}
     if suffix not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
     file_id = make_id("file")
