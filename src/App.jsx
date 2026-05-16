@@ -6,35 +6,24 @@ import BetaFeedback from './BetaFeedback.jsx';
 import ReleaseWorkflowV12 from './ReleaseWorkflowV12.jsx';
 
 const NAV_MAP = {
-  mix: 'AI Mix & Master',
-  daw: 'AI DAW',
-  generator: 'AI Sound Generator',
-  exports: 'Export System',
-  engine: 'AI Architecture',
-  overview: 'Overview',
+  home: 'Home',
+  studio: 'Studio',
+  sounds: 'Sounds',
 };
 
 function clickNav(label) {
   const buttons = Array.from(document.querySelectorAll('.app nav button'));
-  const target = buttons.find((button) => button.textContent?.toLowerCase().includes(label.toLowerCase()));
-  if (target) {
-    target.click();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    return true;
-  }
+  const target = buttons.find(b => b.textContent?.toLowerCase().includes(label.toLowerCase()));
+  if (target) { target.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); return true; }
   return false;
 }
 
 function routeForLabel(label) {
   const text = label.toLowerCase();
-  if (text.includes('free tier')) return { page: 'exports' };
-  if (text.includes('premium mastering')) return { page: 'mix', audioMvp: false };
-  if (text.includes('upload audio') || text.includes('start mix') || text.includes('mix & master')) return { page: 'mix', audioMvp: true };
-  if (text.includes('generate sounds')) return { page: 'generator' };
-  if (text.includes('ai architecture') || text.includes('engine')) return { page: 'engine' };
-  if (text.includes('export system')) return { page: 'exports' };
-  if (text.includes('ai daw')) return { page: 'daw' };
-  if (text.includes('overview')) return { page: 'overview' };
+  if (text.includes('open studio') || text.includes('upload audio') || text.includes('start mix') || text.includes('mix & master') || text.includes('record')) {
+    return { page: 'studio', audioMvp: true };
+  }
+  if (text.includes('generate sounds') || text.includes('sounds')) return { page: 'sounds' };
   return null;
 }
 
@@ -52,8 +41,6 @@ export default function InfinityActionRouter() {
       if (button.closest('.chips')) return;
       if (button.closest('.toggle')) return;
       if (button.closest('.range')) return;
-      if (button.closest('.daw')) return;
-      if (button.closest('.learning')) return;
       const label = button.textContent?.replace(/\s+/g, ' ').trim();
       if (!label) return;
       const route = routeForLabel(label);
