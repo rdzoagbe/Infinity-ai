@@ -28,6 +28,18 @@ const PLATFORMS = [
 
 const MODES = ['Custom AI adaptive', 'Trap', 'Afrobeat', 'Drill', 'House', 'Gospel', 'Cinematic', 'Soul', 'Experimental'];
 
+const MODE_DESCRIPTIONS = {
+  'Custom AI adaptive': { color: '#55e9ff', tags: ['Balanced EQ', '2.4:1 compression', 'Wide stereo'], detail: 'All-rounder — works for any genre. Gentle presence lift, balanced low end, cohesive glue compression.' },
+  'Trap':               { color: '#b78aff', tags: ['Sub punch +65Hz', 'Bright highs +10kHz', '4:1 hard glue'], detail: 'Heavy sub bass at 65 Hz, mud cut at 200 Hz, airy 10 kHz sparkle. Aggressive 4:1 glue compression.' },
+  'Afrobeat':           { color: '#57f09c', tags: ['Groove warmth +280Hz', 'Kick punch +80Hz', 'Vocal presence +4kHz'], detail: 'Warm low-mids for groove, kick punch, vocal cut-through. Musical 2.5:1 compression with natural transients.' },
+  'Drill':              { color: '#ff6b6b', tags: ['Deep sub +55Hz', 'Dark top-end', '5:1 hard limit'], detail: 'Deep 55 Hz sub, 3 kHz harshness cut, dark top-end. Hardest compression (5:1) — unforgiving and punchy.' },
+  'House':              { color: '#ffcf66', tags: ['Kick weight +85Hz', 'Energy +3.5kHz', '3.5:1 pumping'], detail: 'Kick-focused low end, boxiness cut, driving 3.5 kHz energy. Pumping 3.5:1 for that club-ready feel.' },
+  'Gospel':             { color: '#ffa8f0', tags: ['Vocal warmth +200Hz', 'Choir clarity +4kHz', 'Gentle 2:1'], detail: 'Warm vocal body, choir presence and air. Gentlest dynamics (2:1) — full range, emotion preserved.' },
+  'Cinematic':          { color: '#a8d8ff', tags: ['Widest stereo', 'Orchestral air +12kHz', 'Soft 1.6:1'], detail: 'Tightest sub control, maximum stereo width, orchestral air shelf. Most dynamic range of all styles.' },
+  'Soul':               { color: '#ffb347', tags: ['Vintage warmth +350Hz', 'Silky +4.5kHz', 'Smooth 2.2:1'], detail: 'Vintage low-mid warmth, silky upper-mids for smoothness. Transparent 2.2:1 — polished, not processed.' },
+  'Experimental':       { color: '#c8ff66', tags: ['Custom EQ', 'Wide dynamics', 'Creative space'], detail: 'Balanced foundation with extra stereo width and air. Room to experiment — less predictable, more open.' },
+};
+
 const HIT_HARDER_TIPS = [
   'Presence lift (+1.5 dB at 3.5 kHz) — vocals cut through without raising volume.',
   'Room depth (aecho reverb) — sits the mix in a space instead of sounding flat.',
@@ -389,6 +401,20 @@ export default function AudioMVPV2({ open, onClose }) {
           <div style={{ ...card, marginBottom: 16 }}>
             <div style={{ fontWeight: 700, marginBottom: 12 }}>Mastering style</div>
             <div className="chips">{MODES.map(m => <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => setMode(m)}>{m}</button>)}</div>
+            {(() => {
+              const desc = MODE_DESCRIPTIONS[mode];
+              if (!desc) return null;
+              return (
+                <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: `${desc.color}10`, border: `1px solid ${desc.color}30` }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {desc.tags.map(t => (
+                      <span key={t} style={{ fontSize: 11, fontWeight: 700, color: desc.color, background: `${desc.color}18`, borderRadius: 99, padding: '3px 9px' }}>{t}</span>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'rgba(245,248,255,.62)', lineHeight: 1.5 }}>{desc.detail}</div>
+                </div>
+              );
+            })()}
             <label className="range" style={{ marginTop: 14 }}>
               <span>Mastering intensity <b>{strength}%</b></span>
               <input type="range" min="0" max="100" value={strength} onChange={e => setStrength(Number(e.target.value))} />
