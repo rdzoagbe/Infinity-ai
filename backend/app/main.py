@@ -6,9 +6,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, separate_stems_with_demucs
+from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
-from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest
+from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, load_store, make_id, save_store
 
 settings = get_settings()
@@ -112,7 +112,7 @@ def master_audio(payload: ProcessRequest):
     input_path = Path(file_data["stored_path"])
     output_dir = Path(file_data["workspace"]) / "renders"
     job = create_job(JobType.master, message="v10 mastering started")
-    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth)
+    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq)
     result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
     if render.get("status") == "completed":
         result["downloads"] = {
@@ -122,6 +122,30 @@ def master_audio(payload: ProcessRequest):
             "master_mp3": f"/api/v1/files/{payload.file_id}/download/master-mp3",
         }
     return complete_job(job, result, "Infinity v10 mastering complete" if render.get("status") == "completed" else "Mastering skipped or failed")
+
+@app.post("/api/v1/audio/style-preview")
+def style_preview(payload: StylePreviewRequest):
+    file_data = get_file_or_404(payload.file_id)
+    workspace = Path(file_data["workspace"])
+    # Prefer cleaned or enhanced file if available in the workspace
+    enhanced = workspace / "renders" / "enhanced.wav"
+    cleaned = workspace / "renders" / "mix-cleaned.wav"
+    if enhanced.exists():
+        input_path = enhanced
+    elif cleaned.exists():
+        input_path = cleaned
+    else:
+        input_path = Path(file_data["stored_path"])
+    output_dir = workspace / "renders"
+    job = create_job(JobType.master, message="Style preview started")
+    result_data = render_style_preview_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.warmth)
+    downloads = {}
+    if result_data.get("status") == "completed":
+        downloads["style_preview"] = f"/api/v1/files/{payload.file_id}/download/style-preview"
+    result = {"file_id": payload.file_id, "mode": payload.mode, "preview": result_data, "downloads": downloads}
+    msg = "Style preview ready" if result_data.get("status") == "completed" else f"Style preview failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
 
 @app.post("/api/v1/audio/separate-stems")
 def separate_stems(payload: AnalyzeRequest):
@@ -202,6 +226,7 @@ def download_file(file_id: str, asset_type: str):
         "mix-cleaned-mp3": workspace / "renders" / "mix-cleaned.mp3",
         "enhanced-wav": workspace / "renders" / "enhanced.wav",
         "enhanced-mp3": workspace / "renders" / "enhanced.mp3",
+        "style-preview": workspace / "renders" / "style-preview.mp3",
     }
     if asset_type.startswith("stem-"):
         stem_name = asset_type.replace("stem-", "", 1)

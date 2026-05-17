@@ -10,12 +10,11 @@ const nav = [
 ];
 
 const WORKFLOW_STEPS = [
-  { n: 1, label: 'Upload Beat', desc: 'Drop your instrumental — MP3, WAV or FLAC.' },
-  { n: 2, label: 'Add Vocals', desc: 'Upload a take or record straight from your mic.' },
-  { n: 3, label: 'Clean Vocals', desc: 'Noise reduction, de-essing and compression in one click.' },
-  { n: 4, label: 'Mix', desc: 'Balance vocal and beat levels with a simple slider.' },
-  { n: 5, label: 'Master', desc: 'Pick your platform — Spotify, Apple, YouTube and more.' },
-  { n: 6, label: 'Download', desc: 'Get your WAV and MP3, ready to release.' },
+  { n: 1, label: 'Upload Song', desc: 'Drop your mixed track — beat and vocals already together. MP3, WAV or FLAC.' },
+  { n: 2, label: 'Clean', desc: 'Remove room noise, echo, de-essing and normalize levels in one click.' },
+  { n: 3, label: 'Mix', desc: 'Shape presence, reverb depth, stereo width and bus compression.' },
+  { n: 4, label: 'Master', desc: 'Choose your platform and genre style — Infinity hits the exact LUFS target.' },
+  { n: 5, label: 'Download', desc: 'Get your WAV, MP3 320k and 30-second preview ready to release.' },
 ];
 
 const PLATFORMS = [
@@ -174,8 +173,7 @@ function StudioPage() {
             <p className="eyebrow">Infinity Studio</p>
             <h2>Your complete vocal workflow</h2>
             <p className="muted wide">
-              Six steps, one modal. Upload your beat, bring in your vocals, clean them,
-              mix and master — then download a WAV and MP3 ready for any platform.
+              Five steps, one modal. Upload your finished track, clean it, shape the mix, master for your platform and download.
             </p>
           </div>
           <button className="primary" style={{ flexShrink: 0 }}><Mic2 size={16} /> Open Studio</button>
@@ -353,7 +351,7 @@ function Sidebar({ page, setPage, open, setOpen }) {
         <Card className="side-note">
           <p className="eyebrow">Ready to start?</p>
           <h3>Open the studio.</h3>
-          <p className="muted">Upload your beat, record vocals, clean, mix and master in six steps.</p>
+          <p className="muted">Upload your finished track, clean it, shape the mix, master for your platform and download.</p>
           <button className="primary" style={{ marginTop: 10, width: '100%' }}><Mic2 size={15} /> Open Studio</button>
         </Card>
       </aside>

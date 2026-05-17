@@ -60,11 +60,11 @@ export async function mixAudioOnBackend(fileId, mode = "Custom AI adaptive", str
   return parseResponse(response, "Mix job failed");
 }
 
-export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0) {
+export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0, lowEq = 0.0, midEq = 0.0, highEq = 0.0) {
   const response = await fetch(`${API_BASE}/api/v1/audio/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth }),
+    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth, low_eq: lowEq, mid_eq: midEq, high_eq: highEq }),
   });
 
   return parseResponse(response, "Mastering job failed");
@@ -138,6 +138,15 @@ export async function separateStemsOnBackend(fileId) {
   return parseResponse(response, "Stem separation job failed");
 }
 
+export async function previewStyleOnBackend(fileId, mode = "Custom AI adaptive", strength = 72, warmth = 0.3) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/style-preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId, mode, strength, warmth }),
+  });
+  return parseResponse(response, "Style preview failed");
+}
+
 export async function generateSoundOnBackend(prompt, intensity = 68, genre = "Cinematic", emotion = "Mystic") {
   const response = await fetch(`${API_BASE}/api/v1/sound/generate`, {
     method: "POST",
@@ -161,6 +170,22 @@ export async function exportPackageOnBackend(fileId) {
 export async function getBackendJob(jobId) {
   const response = await fetch(`${API_BASE}/api/v1/jobs/${jobId}`);
   return parseResponse(response, "Job lookup failed");
+}
+
+export async function uploadAndMeasureLufsOnBackend(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const uploadRes = await fetch(`${API_BASE}/api/v1/audio/upload`, { method: "POST", body: formData });
+  const uploadData = await parseResponse(uploadRes, "Reference upload failed");
+  const fileId = uploadData?.file?.file_id;
+  if (!fileId) throw new Error("No file ID from reference upload");
+  const analyzeRes = await fetch(`${API_BASE}/api/v1/audio/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  const analyzeData = await parseResponse(analyzeRes, "Reference analyze failed");
+  return analyzeData?.integrated_lufs ?? null;
 }
 
 export { API_BASE };
