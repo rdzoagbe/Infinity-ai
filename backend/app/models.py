@@ -53,6 +53,9 @@ class ProcessRequest(BaseModel):
     platform: str = "spotify"
     air_boost: bool = False
     warmth: float = 0.0  # 0.0 = clean digital, 1.0 = heavy tape/tube saturation
+    low_eq: float = 0.0   # dB adjustment for bass (<200 Hz), range -12 to +12
+    mid_eq: float = 0.0   # dB adjustment for mids (200 Hz–4 kHz)
+    high_eq: float = 0.0  # dB adjustment for highs (>4 kHz)
 
 
 class CleanVocalsRequest(BaseModel):

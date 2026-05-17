@@ -9,6 +9,7 @@ import {
   enhanceMixOnBackend,
   masterAudioOnBackend,
   uploadAudioToBackend,
+  uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
 
 const STEPS = [
@@ -115,6 +116,75 @@ function Waveform({ src, color = '#55e9ff' }) {
   );
 }
 
+function SpectrumAnalyzer({ src, color = '#b78aff' }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    if (!src || !canvasRef.current) return;
+    let cancelled = false;
+    let animId = null;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ac = new Ctx();
+    let sourceNode = null;
+    fetch(src)
+      .then(r => r.arrayBuffer())
+      .then(buf => ac.decodeAudioData(buf))
+      .then(decoded => {
+        if (cancelled || !canvasRef.current) return;
+        sourceNode = ac.createBufferSource();
+        sourceNode.buffer = decoded;
+        sourceNode.loop = true;
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.82;
+        const gain = ac.createGain();
+        gain.gain.value = 0;
+        sourceNode.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(ac.destination);
+        sourceNode.start(0, decoded.duration * 0.12);
+        const freqData = new Uint8Array(analyser.frequencyBinCount);
+        const canvas = canvasRef.current;
+        const BARS = 64;
+        const draw = () => {
+          if (cancelled || !canvasRef.current) return;
+          animId = requestAnimationFrame(draw);
+          analyser.getByteFrequencyData(freqData);
+          const W = canvas.offsetWidth || 560;
+          const H = 72;
+          if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, W, H);
+          const nyquist = ac.sampleRate / 2;
+          const logMin = Math.log10(30);
+          const logMax = Math.log10(nyquist);
+          for (let i = 0; i < BARS; i++) {
+            const logFreq = logMin + (i / BARS) * (logMax - logMin);
+            const freq = Math.pow(10, logFreq);
+            const binIdx = Math.min(Math.round((freq / nyquist) * freqData.length), freqData.length - 1);
+            const val = freqData[binIdx] / 255;
+            const bH = Math.max(2, val * H * 0.96);
+            const bW = Math.max(1, W / BARS - 1);
+            const grad = ctx.createLinearGradient(0, H - bH, 0, H);
+            grad.addColorStop(0, color);
+            grad.addColorStop(1, color + '33');
+            ctx.fillStyle = grad;
+            ctx.fillRect(i * (W / BARS), H - bH, bW, bH);
+          }
+        };
+        draw();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (animId) cancelAnimationFrame(animId);
+      if (sourceNode) { try { sourceNode.stop(); } catch {} }
+      ac.close().catch(() => {});
+    };
+  }, [src, color]);
+  return <canvas ref={canvasRef} style={{ width: '100%', height: 72, borderRadius: 8, display: 'block', background: 'rgba(255,255,255,.03)', marginBottom: 8 }} />;
+}
+
 const overlay = { position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,.74)', overflowY: 'auto', padding: '12px 8px' };
 const card = { border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', borderRadius: 18, padding: 18 };
 const cardGreen = { ...card, border: '1px solid rgba(87,240,156,.28)', background: 'rgba(87,240,156,.06)' };
@@ -212,6 +282,14 @@ export default function AudioMVPV2({ open, onClose }) {
   const [mode, setMode] = useState('Custom AI adaptive');
   const [strength, setStrength] = useState(72);
   const [warmth, setWarmth] = useState(30);   // 0–100 displayed, sent as 0.0–1.0
+  const [lowEq, setLowEq] = useState(0);
+  const [midEq, setMidEq] = useState(0);
+  const [highEq, setHighEq] = useState(0);
+
+  // reference track
+  const [refLufs, setRefLufs] = useState(null);
+  const [refBusy, setRefBusy] = useState(false);
+
   const [masterJob, setMasterJob] = useState(null);
   const [masterCacheBust, setMasterCacheBust] = useState(0);
   const [abMode, setAbMode] = useState('master'); // 'original' | 'master'
@@ -255,6 +333,16 @@ export default function AudioMVPV2({ open, onClose }) {
     try {
       const res = await uploadAudioToBackend(file);
       setSongBackend(res.file);
+      window.dispatchEvent(new CustomEvent('infinity:project-file', {
+        detail: {
+          id: res.file.file_id,
+          file_id: res.file.file_id,
+          name: file.name,
+          filename: file.name,
+          size: file.size,
+          size_bytes: file.size,
+        },
+      }));
       setStatus('Analysing loudness and track info…');
       try {
         const analysis = await analyzeAudioOnBackend(res.file.file_id);
@@ -266,6 +354,16 @@ export default function AudioMVPV2({ open, onClose }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleRefFile = async (file) => {
+    if (!file) return;
+    setRefBusy(true); setRefLufs(null);
+    try {
+      const lufs = await uploadAndMeasureLufsOnBackend(file);
+      setRefLufs(lufs);
+    } catch {}
+    finally { setRefBusy(false); }
   };
 
   const runClean = async () => {
@@ -314,7 +412,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setBusy(true); setError('');
     setStatus(`Mastering for ${platformLabel} · ${mode}${airBoost ? ' + air boost' : ''}${overrideStrength ? ` · ${s}% intensity` : ''}…`);
     try {
-      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100);
+      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq);
       setMasterJob(job);
       const bust = Date.now();
       setMasterCacheBust(bust);
@@ -334,6 +432,31 @@ export default function AudioMVPV2({ open, onClose }) {
       };
       saveToHistory(entry);
       setHistory(loadHistory());
+      // emit to project library
+      const dl = job?.result?.downloads || {};
+      const previewUrl = dl.master_preview ? backendUrl(dl.master_preview) : '';
+      const mp3Url = dl.master_mp3 ? backendUrl(dl.master_mp3) : '';
+      const wavUrl = dl.master_wav ? backendUrl(dl.master_wav) : '';
+      window.dispatchEvent(new CustomEvent('infinity:project-sound', {
+        detail: {
+          id: `master_${bust}`,
+          type: 'master',
+          source: 'infinity-studio',
+          name: `Master — ${projectName || songFile?.name || 'track'}`,
+          platform,
+          mode,
+          strength: s,
+          target_lufs: job?.result?.target_lufs,
+          preview_url: previewUrl,
+          download_url: mp3Url,
+          assets: [
+            wavUrl && { type: 'WAV', name: 'Master WAV', download_url: wavUrl },
+            mp3Url && { type: 'MP3', name: 'MP3 320k', download_url: mp3Url },
+            previewUrl && { type: 'Preview', name: '30s Preview', download_url: previewUrl },
+          ].filter(Boolean),
+          created_at: new Date().toISOString(),
+        },
+      }));
       if (step !== 5) go(5);
     } catch (err) {
       setError(`Mastering failed: ${safeError(err)}`);
@@ -350,6 +473,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
     setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
+    setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};

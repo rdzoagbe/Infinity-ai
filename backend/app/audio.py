@@ -489,7 +489,7 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
     )
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0) -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -527,6 +527,9 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
             [f"volume={pre_drive}", f"asoftclip=type=tanh:threshold={sat_threshold}"]
             if safe_warmth > 0.03 else []
         ),
+        *(([f"equalizer=f=100:t=q:w=0.8:g={low_eq:.1f}"] if abs(low_eq) > 0.5 else []) +
+          ([f"equalizer=f=1000:t=q:w=1.0:g={mid_eq:.1f}"] if abs(mid_eq) > 0.5 else []) +
+          ([f"equalizer=f=10000:t=q:w=1.0:g={high_eq:.1f}"] if abs(high_eq) > 0.5 else [])),
         "equalizer=f=8000:t=q:w=1.5:g=-1.5",                    # de-ess / sibilance control (always on)
         *(["treble=g=2.5:f=12000"] if air_boost else []),        # extra brightness if requested
         # Transparent soft-knee compression — musical, not robotic
@@ -573,12 +576,16 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "platform": platform,
         "strength": safe_strength,
         "warmth": safe_warmth,
+        "low_eq": low_eq,
+        "mid_eq": mid_eq,
+        "high_eq": high_eq,
         "target_lufs": target_lufs,
         "filter_chain": audio_filter,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
             f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
             f"analog saturation — {warmth_label} (tanh soft-clip)",
+            f"user EQ — low {low_eq:+.1f} dB · mid {mid_eq:+.1f} dB · high {high_eq:+.1f} dB",
             "sibilance control (8 kHz, always on)",
             "transparent soft-knee compression",
             "stereo widening",
