@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, CloudUpload, Copy, Download, RefreshCw, Share2, Sparkles, X } from 'lucide-react';
 import {
   API_BASE,
+  analyzeAudioOnBackend,
   backendUrl,
   checkBackendHealth,
   cleanFullMixOnBackend,
@@ -184,10 +185,14 @@ export default function AudioMVPV2({ open, onClose }) {
   const [status, setStatus] = useState('');
   const [copied, setCopied] = useState('');
 
+  // project
+  const [projectName, setProjectName] = useState('');
+
   // upload
   const [songFile, setSongFile] = useState(null);
   const [songBackend, setSongBackend] = useState(null);
   const [songUrl, setSongUrl] = useState('');
+  const [analysisData, setAnalysisData] = useState(null);
 
   // clean
   const [cleanJob, setCleanJob] = useState(null);
@@ -208,6 +213,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const [strength, setStrength] = useState(72);
   const [masterJob, setMasterJob] = useState(null);
   const [masterCacheBust, setMasterCacheBust] = useState(0);
+  const [abMode, setAbMode] = useState('master'); // 'original' | 'master'
 
   // history
   const [history, setHistory] = useState(() => loadHistory());
@@ -248,6 +254,11 @@ export default function AudioMVPV2({ open, onClose }) {
     try {
       const res = await uploadAudioToBackend(file);
       setSongBackend(res.file);
+      setStatus('Analysing loudness and track info…');
+      try {
+        const analysis = await analyzeAudioOnBackend(res.file.file_id);
+        setAnalysisData(analysis);
+      } catch {}
       setStatus('Song uploaded. Ready to clean.');
     } catch (err) {
       setError(`Upload failed: ${safeError(err)}`);
@@ -312,10 +323,11 @@ export default function AudioMVPV2({ open, onClose }) {
       const entry = {
         id: bust,
         date: new Date().toISOString(),
-        filename: songFile?.name || 'unknown',
+        filename: projectName || songFile?.name || 'unknown',
         platform,
         genre: mode,
         strength: s,
+        originalLufs: analysisData?.integrated_lufs ?? null,
         wavUrl: downloads.master_wav ? backendUrl(downloads.master_wav) : '',
         mp3Url: downloads.master_mp3 ? backendUrl(downloads.master_mp3) : '',
       };
@@ -331,10 +343,11 @@ export default function AudioMVPV2({ open, onClose }) {
 
   const resetAll = () => {
     setStep(1);
-    setSongFile(null); setSongBackend(null); setSongUrl('');
+    setProjectName('');
+    setSongFile(null); setSongBackend(null); setSongUrl(''); setAnalysisData(null);
     setCleanJob(null); setCleanedPreviewUrl('');
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
-    setMasterJob(null); setMasterCacheBust(0); setError(''); setStatus('');
+    setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true);
   };
 
@@ -343,7 +356,10 @@ export default function AudioMVPV2({ open, onClose }) {
   const masterWavUrl = masterDownloads.master_wav ? backendUrl(masterDownloads.master_wav) : '';
   const masterMp3Url = masterDownloads.master_mp3 ? backendUrl(masterDownloads.master_mp3) : '';
   const masterPreviewUrl = masterDownloads.master_preview ? `${backendUrl(masterDownloads.master_preview)}${bust}` : '';
+  const originalDownloadUrl = songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '';
   const masterRender = masterJob?.result?.render || {};
+  const abAudioUrl = abMode === 'original' ? originalDownloadUrl : masterPreviewUrl;
+  const targetLufs = masterJob?.result?.target_lufs ?? _lufsLabel(platform);
 
   const reverbLabel = reverbAmount < 0.06 ? 'Dry' : reverbAmount < 0.35 ? 'Room' : reverbAmount < 0.65 ? 'Studio' : reverbAmount < 0.85 ? 'Hall' : 'Cathedral';
 
@@ -373,6 +389,20 @@ export default function AudioMVPV2({ open, onClose }) {
               <div style={{ color: 'rgba(245,248,255,.52)', fontSize: 13, marginBottom: 10 }}>{formatBytes(songFile.size)}</div>
               {songUrl && <Waveform src={songUrl} color="#55e9ff" />}
               {songUrl && <audio controls src={songUrl} style={{ width: '100%', marginTop: 10 }} />}
+              {/* Analysis pill row */}
+              {analysisData && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                  {[
+                    ['BPM', analysisData.estimated_bpm],
+                    ['Key', analysisData.estimated_key],
+                    analysisData.integrated_lufs != null && ['Loudness', `${analysisData.integrated_lufs} LUFS`],
+                    analysisData.lra != null && ['LRA', `${analysisData.lra} LU`],
+                    analysisData.duration_seconds && ['Duration', `${Math.floor(analysisData.duration_seconds / 60)}:${String(Math.round(analysisData.duration_seconds % 60)).padStart(2, '0')}`],
+                  ].filter(Boolean).map(([k, v]) => (
+                    <span key={k} style={{ fontSize: 11, fontWeight: 700, background: 'rgba(85,233,255,.12)', color: '#55e9ff', borderRadius: 99, padding: '3px 10px' }}>{k}: {v}</span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <label
@@ -387,6 +417,17 @@ export default function AudioMVPV2({ open, onClose }) {
               <div style={{ color: 'rgba(245,248,255,.52)', fontSize: 13 }}>MP3 · WAV · FLAC · M4A · up to 250 MB</div>
             </div>
           </label>
+          {/* Project name */}
+          <div style={{ marginTop: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'rgba(245,248,255,.55)', marginBottom: 6 }}>Song / project name (optional)</label>
+            <input
+              type="text"
+              placeholder={songFile?.name?.replace(/\.[^.]+$/, '') || 'e.g. Summer Anthem'}
+              value={projectName}
+              onChange={e => setProjectName(e.target.value)}
+              style={{ width: '100%', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, padding: '10px 14px', color: '#f5f8ff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
           <StatusBox message={status} error={error} busy={busy} />
           <NavRow nextLabel="Next — Clean →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
         </div>
@@ -557,11 +598,10 @@ export default function AudioMVPV2({ open, onClose }) {
 
           {masterJob?.result && (
             <div style={{ ...cardGreen, marginBottom: 16 }}>
-              <div style={{ fontWeight: 800, marginBottom: 12 }}>✓ Mastering complete</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ fontWeight: 800, marginBottom: 12 }}>✓ {projectName || songFile?.name?.replace(/\.[^.]+$/, '') || 'Master'} — complete</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                 {[
                   ['Platform', PLATFORMS.find(p => p.id === platform)?.label],
-                  ['Target loudness', `${masterJob.result.target_lufs ?? masterRender.target_lufs ?? _lufsLabel(platform)} LUFS`],
                   ['Style', mode],
                   ['Intensity', `${strength}%`],
                 ].map(([k, v]) => (
@@ -571,14 +611,47 @@ export default function AudioMVPV2({ open, onClose }) {
                   </div>
                 ))}
               </div>
+              {/* Loudness meter */}
+              <div style={{ background: 'rgba(0,0,0,.2)', borderRadius: 12, padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, color: 'rgba(245,248,255,.44)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Loudness</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>Your upload</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: analysisData?.integrated_lufs != null ? '#ffcf66' : 'rgba(245,248,255,.3)' }}>
+                      {analysisData?.integrated_lufs != null ? `${analysisData.integrated_lufs} LUFS` : '— LUFS'}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 22, color: '#57f09c', fontWeight: 800 }}>→</div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>After master</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#57f09c' }}>{targetLufs} LUFS</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginLeft: 'auto' }}>
+                    {PLATFORMS.find(p => p.id === platform)?.label} target
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
+          {/* A/B Toggle + preview */}
           {masterPreviewUrl && (
             <div style={{ ...card, marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)', marginBottom: 8 }}>30-second master preview:</div>
-              <Waveform src={masterPreviewUrl} color="#b78aff" />
-              <audio controls src={masterPreviewUrl} style={{ width: '100%', marginTop: 8 }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
+                  {abMode === 'original' ? 'Original upload' : '30-second master preview'}
+                </div>
+                <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
+                  {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
+                    <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
+                      style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
+              <audio key={abAudioUrl} controls src={abAudioUrl} style={{ width: '100%', marginTop: 8 }} />
             </div>
           )}
 

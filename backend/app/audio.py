@@ -70,6 +70,31 @@ def read_basic_audio_metadata(path: Path) -> dict:
     return metadata
 
 
+def measure_lufs(input_path: Path) -> dict:
+    """Measure integrated loudness (LUFS), true peak, and LRA via ffmpeg loudnorm."""
+    if not has_ffmpeg():
+        return {}
+    code, _stdout, stderr = run_command(
+        ["ffmpeg", "-y", "-i", str(input_path), "-af", "loudnorm=print_format=json", "-f", "null", "/dev/null"],
+        timeout=180,
+    )
+    try:
+        start = stderr.rfind("\n{")
+        if start == -1:
+            start = stderr.rfind("{")
+        end = stderr.rfind("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(stderr[start:end])
+            return {
+                "integrated_lufs": round(float(data["input_i"]), 1),
+                "true_peak_dbtp": round(float(data["input_tp"]), 1),
+                "lra": round(float(data["input_lra"]), 1),
+            }
+    except Exception:
+        pass
+    return {}
+
+
 def estimate_music_traits(filename: str, metadata: dict) -> dict:
     seed = sum(ord(c) for c in filename)
     duration = int(metadata.get("duration_seconds") or 0)
@@ -88,6 +113,7 @@ def estimate_music_traits(filename: str, metadata: dict) -> dict:
 
 def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict) -> dict:
     traits = estimate_music_traits(filename, metadata)
+    lufs = measure_lufs(path)
     duration = metadata.get("duration_seconds")
     sample_rate = metadata.get("sample_rate")
     bitrate = metadata.get("bitrate")
@@ -111,6 +137,7 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
             "stereo_or_mono_detected": metadata.get("channels") in (1, 2),
         },
         **traits,
+        **lufs,
         "note": "Infinity v10 analysis. FFprobe/mutagen metadata is real; BPM/key/genre remain heuristic until Librosa/Essentia integration.",
     }
 
