@@ -567,14 +567,16 @@ export default function AudioMVPV2({ open, onClose }) {
           <div style={card}>
             <div style={{ fontWeight: 700, marginBottom: 12 }}>Cleaning chain</div>
             {[
-              'Sub-bass rumble removal (30 Hz high-pass)',
+              'Rumble removal (80 Hz high-pass — removes room boom)',
               'Gentle top-end rolloff (18 kHz low-pass)',
-              'Noise floor reduction (afftdn −20 dB)',
-              'Light de-essing at 7 kHz (−2 dB notch)',
+              'Strong noise reduction (afftdn −25 dB, 15 dB NR)',
+              'Room reverb gate — cuts echo tails between phrases',
+              'Room resonance cuts at 200 Hz (−3 dB) and 400 Hz (−2 dB)',
+              'De-essing at 7 kHz (−2 dB)',
               'Gentle mix compression (1.8:1 ratio)',
               'Loudness normalization (−16 LUFS / −1.5 dBTP)',
             ].map((item, i) => (
-              <div key={i} style={{ color: 'rgba(245,248,255,.65)', fontSize: 13, padding: '5px 0', borderBottom: i < 5 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+              <div key={i} style={{ color: 'rgba(245,248,255,.65)', fontSize: 13, padding: '5px 0', borderBottom: i < 7 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
                 → {item}
               </div>
             ))}
@@ -712,6 +714,50 @@ export default function AudioMVPV2({ open, onClose }) {
               <input type="range" min="0" max="100" value={warmth} onChange={e => setWarmth(Number(e.target.value))} />
             </label>
           </div>
+          <div style={{ ...card, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Tone balance</div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 14, lineHeight: 1.5 }}>
+              Fine-tune the frequency balance of the master. 0 = neutral — these add on top of the genre style.
+            </div>
+            {[
+              { label: 'Low', freq: '<200 Hz — bass & sub', val: lowEq, set: setLowEq, color: '#b78aff' },
+              { label: 'Mid', freq: '200 Hz–4 kHz — warmth & presence', val: midEq, set: setMidEq, color: '#55e9ff' },
+              { label: 'High', freq: '>4 kHz — air & brightness', val: highEq, set: setHighEq, color: '#57f09c' },
+            ].map(({ label, freq, val, set, color }) => (
+              <label key={label} className="range" style={{ marginBottom: 10 }}>
+                <span>
+                  <b style={{ color }}>{label}</b>
+                  <span style={{ color: 'rgba(245,248,255,.42)', fontSize: 12, marginLeft: 6 }}>{freq}</span>
+                  <b style={{ marginLeft: 8, color: val > 0 ? '#57f09c' : val < 0 ? '#ff6b6b' : 'rgba(245,248,255,.5)' }}>
+                    {val > 0 ? `+${val}` : val} dB
+                  </b>
+                </span>
+                <input type="range" min="-6" max="6" step="0.5" value={val} onChange={e => set(Number(e.target.value))} data-infinity-local-action="true" />
+              </label>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => { setLowEq(0); setMidEq(0); setHighEq(0); }}>Reset EQ</button>
+            </div>
+          </div>
+          <div style={{ ...card, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Reference track <span style={{ fontSize: 12, fontWeight: 400, color: 'rgba(245,248,255,.42)' }}>optional</span></div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 10, lineHeight: 1.5 }}>
+              Upload a song you want to sound like. We'll measure its loudness so you can compare.
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleRefFile(e.target.files[0]); }} />
+              <span className="secondary" style={{ fontSize: 13, padding: '8px 14px', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, background: 'rgba(255,255,255,.05)', color: '#f5f8ff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {refBusy ? 'Measuring...' : '↑ Upload reference'}
+              </span>
+              {refLufs != null && (
+                <span style={{ fontSize: 13 }}>
+                  Reference: <b style={{ color: '#ffcf66' }}>{refLufs} LUFS</b>
+                  {' '}→ your master will be{' '}
+                  <b style={{ color: '#57f09c' }}>{masterJob?.result?.target_lufs ?? _lufsLabel(platform)} LUFS</b>
+                </span>
+              )}
+            </label>
+          </div>
           {enhancedPreviewUrl && (
             <div style={{ ...card, marginBottom: 16 }}>
               <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)', marginBottom: 8 }}>Pre-master preview:</div>
@@ -789,6 +835,17 @@ export default function AudioMVPV2({ open, onClose }) {
               </div>
               <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
               <audio key={abAudioUrl} controls src={abAudioUrl} style={{ width: '100%', marginTop: 8 }} />
+            </div>
+          )}
+
+          {/* Spectrum analyzer */}
+          {masterPreviewUrl && (
+            <div style={{ ...card, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Frequency spectrum</div>
+              <SpectrumAnalyzer src={masterPreviewUrl} color="#b78aff" />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'rgba(245,248,255,.28)', marginTop: 4 }}>
+                <span>30 Hz</span><span>100 Hz</span><span>1 kHz</span><span>5 kHz</span><span>20 kHz</span>
+              </div>
             </div>
           )}
 

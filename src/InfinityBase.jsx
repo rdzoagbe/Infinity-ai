@@ -351,7 +351,7 @@ function Sidebar({ page, setPage, open, setOpen }) {
         <Card className="side-note">
           <p className="eyebrow">Ready to start?</p>
           <h3>Open the studio.</h3>
-          <p className="muted">Upload your beat, record vocals, clean, mix and master in six steps.</p>
+          <p className="muted">Upload your finished track, clean it, shape the mix, master for your platform and download.</p>
           <button className="primary" style={{ marginTop: 10, width: '100%' }}><Mic2 size={15} /> Open Studio</button>
         </Card>
       </aside>
