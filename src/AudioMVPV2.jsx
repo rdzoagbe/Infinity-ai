@@ -550,7 +550,10 @@ export default function AudioMVPV2({ open, onClose }) {
             ))}
           </div>
           <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 12 }}>Mastering style</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Mastering style</div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+              This shapes the EQ tone and compression character of your master. It enhances and colours your existing mix — it does not change the beat or musical content itself.
+            </div>
             <div className="chips">
               {MODES.map(m => (
                 <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => setMode(m)}>{m}</button>

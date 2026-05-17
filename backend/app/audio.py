@@ -213,10 +213,13 @@ def clean_full_mix_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
     cleaned_mp3 = output_dir / "mix-cleaned.mp3"
 
     filters = [
-        "highpass=f=30",                               # remove sub-bass rumble
-        "lowpass=f=18000",                             # gentle top-end rolloff
-        "afftdn=nf=-20",                               # noise floor reduction
-        "equalizer=f=7000:t=q:w=1.5:g=-2",            # light de-essing
+        "highpass=f=80",                                                    # aggressive rumble removal (80 Hz)
+        "lowpass=f=18000",                                                  # gentle top-end rolloff
+        "afftdn=nf=-25:nr=15",                                              # strong broadband noise reduction
+        "agate=threshold=0.012:ratio=6:attack=10:release=300",              # cut room reverb tails between phrases
+        "equalizer=f=200:t=q:w=1.0:g=-3",                                  # room resonance cut at 200 Hz
+        "equalizer=f=400:t=q:w=1.0:g=-2",                                  # room resonance cut at 400 Hz
+        "equalizer=f=7000:t=q:w=1.5:g=-2",                                 # light de-essing
         "acompressor=threshold=-18dB:ratio=1.8:attack=15:release=150:makeup=1.5",
         "loudnorm=I=-16:TP=-1.5:LRA=10",
     ]
@@ -237,10 +240,13 @@ def clean_full_mix_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
         "mp3_exists": cleaned_mp3.exists() if mp3_code == 0 else False,
         "filter_chain": ",".join(filters),
         "steps": [
-            "sub-bass rumble removal (30 Hz high-pass)",
+            "rumble removal (80 Hz high-pass — stronger than before)",
             "gentle top-end rolloff (18 kHz low-pass)",
-            "noise floor reduction (afftdn −20 dB)",
-            "light de-essing at 7 kHz (−2 dB)",
+            "strong broadband noise reduction (afftdn −25 dB / 15 dB NR)",
+            "room reverb tail gate (agate — cuts echo between phrases)",
+            "room resonance cut at 200 Hz (−3 dB)",
+            "room resonance cut at 400 Hz (−2 dB)",
+            "de-essing at 7 kHz (−2 dB)",
             "gentle mix compression (1.8:1 ratio)",
             "loudness normalization (−16 LUFS / −1.5 dBTP)",
         ],
@@ -389,12 +395,13 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
 
     if genre_key == "trap":
         # Deep sub punch + bright airy top + aggressive glue
+        # Gains ~2x previous so differences are clearly audible at 72% strength
         return (
             [
-                f"bass=g={3.5 * i:.1f}:f=65",               # sub punch at 65 Hz
-                f"equalizer=f=200:t=q:w=1.2:g={-1.5 * i:.2f}",  # mud cut
-                f"equalizer=f=3500:t=q:w=1.0:g={1.5 * i:.2f}",  # presence
-                f"treble=g={2.5 * i:.2f}:f=10000",            # airy highs
+                f"bass=g={7.0 * i:.1f}:f=65",                    # sub punch at 65 Hz (~5 dB at 72%)
+                f"equalizer=f=200:t=q:w=1.2:g={-3.0 * i:.2f}",  # mud cut (~−2.2 dB)
+                f"equalizer=f=3500:t=q:w=1.0:g={3.0 * i:.2f}",  # presence (~2.2 dB)
+                f"treble=g={5.0 * i:.2f}:f=10000",               # airy highs (~3.6 dB)
             ],
             4.0, -16.0, 1.5,
         )
@@ -403,10 +410,10 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         # Heavy sub, dark mids, punchy & unforgiving
         return (
             [
-                f"bass=g={4.5 * i:.1f}:f=55",               # deep sub at 55 Hz
-                f"equalizer=f=150:t=q:w=1.0:g={1.5 * i:.2f}",   # body/kick weight
-                f"equalizer=f=3000:t=q:w=1.5:g={-2.5 * i:.2f}", # cut harshness
-                f"equalizer=f=9000:t=q:w=1.0:g={-1.5 * i:.2f}", # dark top-end
+                f"bass=g={9.0 * i:.1f}:f=55",                    # deep sub at 55 Hz (~6.5 dB at 72%)
+                f"equalizer=f=150:t=q:w=1.0:g={3.0 * i:.2f}",   # body/kick weight (~2.2 dB)
+                f"equalizer=f=3000:t=q:w=1.5:g={-5.0 * i:.2f}", # cut harshness (~−3.6 dB)
+                f"equalizer=f=9000:t=q:w=1.0:g={-3.0 * i:.2f}", # dark top-end (~−2.2 dB)
             ],
             5.0, -14.0, 1.2,
         )
@@ -415,10 +422,10 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         # Warm low-mids, percussive punch, vocal presence, groove
         return (
             [
-                f"equalizer=f=80:t=q:w=0.9:g={2.0 * i:.2f}",    # kick/bass punch
-                f"equalizer=f=280:t=q:w=1.0:g={2.0 * i:.2f}",   # warmth / low-mid groove
-                f"equalizer=f=4000:t=q:w=1.0:g={2.0 * i:.2f}",  # vocal & percussion presence
-                f"treble=g={1.2 * i:.2f}:f=10000",               # subtle air
+                f"equalizer=f=80:t=q:w=0.9:g={4.0 * i:.2f}",    # kick/bass punch (~2.9 dB)
+                f"equalizer=f=280:t=q:w=1.0:g={4.0 * i:.2f}",   # warmth / low-mid groove (~2.9 dB)
+                f"equalizer=f=4000:t=q:w=1.0:g={4.0 * i:.2f}",  # vocal & percussion presence (~2.9 dB)
+                f"treble=g={2.5 * i:.2f}:f=10000",               # subtle air (~1.8 dB)
             ],
             2.5, -20.0, 1.35,
         )
@@ -427,10 +434,10 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         # Pumping kick energy, driving low end, bright & energetic
         return (
             [
-                f"equalizer=f=85:t=q:w=0.8:g={3.0 * i:.2f}",    # kick weight
-                f"equalizer=f=500:t=q:w=1.5:g={-1.0 * i:.2f}",  # boxiness cut
-                f"equalizer=f=3500:t=q:w=1.0:g={1.5 * i:.2f}",  # energy & presence
-                f"treble=g={2.0 * i:.2f}:f=10000",               # sparkle
+                f"equalizer=f=85:t=q:w=0.8:g={6.0 * i:.2f}",    # kick weight (~4.3 dB)
+                f"equalizer=f=500:t=q:w=1.5:g={-2.0 * i:.2f}",  # boxiness cut (~−1.4 dB)
+                f"equalizer=f=3500:t=q:w=1.0:g={3.0 * i:.2f}",  # energy & presence (~2.2 dB)
+                f"treble=g={4.0 * i:.2f}:f=10000",               # sparkle (~2.9 dB)
             ],
             3.5, -15.0, 1.4,
         )
@@ -439,10 +446,10 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         # Vocal warmth, choir presence, transparent dynamics, full & rich
         return (
             [
-                f"equalizer=f=200:t=q:w=1.0:g={1.8 * i:.2f}",   # vocal warmth
-                f"equalizer=f=800:t=q:w=1.5:g={-1.0 * i:.2f}",  # boxy cut
-                f"equalizer=f=4000:t=q:w=0.9:g={2.5 * i:.2f}",  # vocal presence & clarity
-                f"treble=g={2.0 * i:.2f}:f=11000",               # choir air
+                f"equalizer=f=200:t=q:w=1.0:g={3.5 * i:.2f}",   # vocal warmth (~2.5 dB)
+                f"equalizer=f=800:t=q:w=1.5:g={-2.0 * i:.2f}",  # boxy cut (~−1.4 dB)
+                f"equalizer=f=4000:t=q:w=0.9:g={5.0 * i:.2f}",  # vocal presence & clarity (~3.6 dB)
+                f"treble=g={4.0 * i:.2f}:f=11000",               # choir air (~2.9 dB)
             ],
             2.0, -22.0, 1.25,
         )
@@ -452,9 +459,9 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         return (
             [
                 "highpass=f=40",                                   # clean sub (tighter)
-                f"equalizer=f=120:t=q:w=1.0:g={-1.0 * i:.2f}",  # tame low rumble
-                f"equalizer=f=2500:t=q:w=1.2:g={1.0 * i:.2f}",  # detail
-                f"treble=g={2.5 * i:.2f}:f=12000",               # spacious air
+                f"equalizer=f=120:t=q:w=1.0:g={-2.0 * i:.2f}",  # tame low rumble (~−1.4 dB)
+                f"equalizer=f=2500:t=q:w=1.2:g={2.0 * i:.2f}",  # detail (~1.4 dB)
+                f"treble=g={5.0 * i:.2f}:f=12000",               # spacious air (~3.6 dB)
             ],
             1.6, -28.0, 1.6,
         )
@@ -463,10 +470,10 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
         # Vintage warmth, smooth midrange, silky highs
         return (
             [
-                f"equalizer=f=120:t=q:w=0.9:g={1.5 * i:.2f}",   # warm bass
-                f"equalizer=f=350:t=q:w=1.0:g={2.0 * i:.2f}",   # vintage low-mid warmth
-                f"equalizer=f=4500:t=q:w=0.9:g={1.8 * i:.2f}",  # vocal silk
-                f"treble=g={1.0 * i:.2f}:f=10000",               # smooth top
+                f"equalizer=f=120:t=q:w=0.9:g={3.0 * i:.2f}",   # warm bass (~2.2 dB)
+                f"equalizer=f=350:t=q:w=1.0:g={4.0 * i:.2f}",   # vintage low-mid warmth (~2.9 dB)
+                f"equalizer=f=4500:t=q:w=0.9:g={3.5 * i:.2f}",  # vocal silk (~2.5 dB)
+                f"treble=g={2.0 * i:.2f}:f=10000",               # smooth top (~1.4 dB)
             ],
             2.2, -22.0, 1.2,
         )
@@ -474,9 +481,9 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
     # Default: Custom AI adaptive — balanced for all genres
     return (
         [
-            f"equalizer=f=90:t=q:w=1.0:g={1.2 * i:.2f}",
-            f"equalizer=f=3200:t=q:w=1.1:g={1.3 * i:.2f}",
-            f"treble=g={1.5 * i:.2f}:f=11000",
+            f"equalizer=f=90:t=q:w=1.0:g={2.5 * i:.2f}",
+            f"equalizer=f=3200:t=q:w=1.1:g={2.5 * i:.2f}",
+            f"treble=g={3.0 * i:.2f}:f=11000",
         ],
         2.4, -20.0, 1.3,
     )
@@ -551,7 +558,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "filter_chain": audio_filter,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
-            f"genre EQ — {genre_key.title()} shaping",
+            f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
             "sibilance control (8 kHz, always on)",
             "transparent soft-knee compression",
             "stereo widening",
