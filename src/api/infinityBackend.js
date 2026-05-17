@@ -60,11 +60,11 @@ export async function mixAudioOnBackend(fileId, mode = "Custom AI adaptive", str
   return parseResponse(response, "Mix job failed");
 }
 
-export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false) {
+export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0) {
   const response = await fetch(`${API_BASE}/api/v1/audio/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost }),
+    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth }),
   });
 
   return parseResponse(response, "Mastering job failed");

@@ -52,6 +52,7 @@ class ProcessRequest(BaseModel):
     strength: int = 72
     platform: str = "spotify"
     air_boost: bool = False
+    warmth: float = 0.0  # 0.0 = clean digital, 1.0 = heavy tape/tube saturation
 
 
 class CleanVocalsRequest(BaseModel):
