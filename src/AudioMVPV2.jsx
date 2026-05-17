@@ -818,6 +818,15 @@ export default function AudioMVPV2({ open, onClose }) {
                 </span>
               )}
             </label>
+            <label className="range" style={{ marginTop: 10 }}>
+              <span>
+                Warmth / Analog saturation <b>{warmth}%</b>
+                <span style={{ fontWeight: 400, fontSize: 11, color: 'rgba(245,248,255,.42)', marginLeft: 6 }}>
+                  {warmth === 0 ? '— clean digital' : warmth < 35 ? '— subtle tape' : warmth < 65 ? '— analog warmth' : '— tube drive'}
+                </span>
+              </span>
+              <input type="range" min="0" max="100" value={warmth} onChange={e => setWarmth(Number(e.target.value))} />
+            </label>
           </div>
           {enhancedPreviewUrl && (
             <div style={{ ...card, marginBottom: 16 }}>
