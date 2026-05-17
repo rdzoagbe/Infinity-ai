@@ -8,6 +8,7 @@ import {
   cleanFullMixOnBackend,
   enhanceMixOnBackend,
   masterAudioOnBackend,
+  previewStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
@@ -286,6 +287,10 @@ export default function AudioMVPV2({ open, onClose }) {
   const [midEq, setMidEq] = useState(0);
   const [highEq, setHighEq] = useState(0);
 
+  // style preview (Step 3)
+  const [stylePreviewUrl, setStylePreviewUrl] = useState('');
+  const [stylePreviewBusy, setStylePreviewBusy] = useState(false);
+
   // reference track
   const [refLufs, setRefLufs] = useState(null);
   const [refBusy, setRefBusy] = useState(false);
@@ -404,6 +409,23 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runStylePreview = async () => {
+    const targetId = enhancedFileId || songBackend?.file_id;
+    if (!targetId) return;
+    setStylePreviewBusy(true); setError('');
+    setStatus(`Generating ${mode} style preview — 30 seconds…`);
+    try {
+      const job = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus('Style preview ready. Switch styles to compare, then proceed to master.');
+    } catch (err) {
+      setError(`Style preview failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false);
+    }
+  };
+
   const runMaster = async ({ overrideStrength, airBoost = false } = {}) => {
     const targetId = enhancedFileId || songBackend?.file_id;
     if (!targetId) return;
@@ -473,7 +495,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
     setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
-    setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null);
+    setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -653,21 +675,84 @@ export default function AudioMVPV2({ open, onClose }) {
               <audio controls src={enhancedPreviewUrl} style={{ width: '100%' }} />
             </div>
           )}
-          <button className="primary" onClick={runEnhance} disabled={busy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="primary" onClick={runEnhance} disabled={busy || stylePreviewBusy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <RefreshCw size={16} /> {busy ? 'Enhancing...' : enhanceJob ? 'Re-mix with new settings' : 'Apply mix settings'}
           </button>
-          <StatusBox message={status} error={error} busy={busy} />
-          <NavRow onBack={() => go(2)} />
+
+          {/* Genre style selection moved here from Master step */}
+          <div style={{ ...card, marginTop: 20 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Choose your sound style</div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+              Pick a style and preview how your song sounds in it. Compare styles before you commit to mastering.
+            </div>
+            <div className="chips">
+              {MODES.map(m => (
+                <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => { setMode(m); setStylePreviewUrl(''); }}>{m}</button>
+              ))}
+            </div>
+            {(() => {
+              const desc = MODE_DESCRIPTIONS[mode];
+              if (!desc) return null;
+              return (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: `${desc.color}10`, border: `1px solid ${desc.color}28` }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {desc.tags.map(t => <span key={t} style={{ fontSize: 11, fontWeight: 700, color: desc.color, background: `${desc.color}18`, borderRadius: 99, padding: '3px 9px' }}>{t}</span>)}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{desc.detail}</div>
+                </div>
+              );
+            })()}
+            <label className="range" style={{ marginTop: 14 }}>
+              <span>Style intensity <b>{strength}%</b></span>
+              <input type="range" min="0" max="100" value={strength} onChange={e => { setStrength(Number(e.target.value)); setStylePreviewUrl(''); }} />
+            </label>
+            <button
+              className="primary"
+              data-infinity-local-action="true"
+              disabled={stylePreviewBusy || busy || !songBackend}
+              onClick={runStylePreview}
+              style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <Sparkles size={15} /> {stylePreviewBusy ? `Generating ${mode} preview…` : `Preview my song in ${mode}`}
+            </button>
+            {stylePreviewUrl && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 6 }}>30s preview — {mode}</div>
+                <audio key={stylePreviewUrl} controls src={stylePreviewUrl} style={{ width: '100%' }} />
+                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginTop: 6 }}>
+                  Happy with the sound? Hit Next to choose your release platform.
+                </div>
+              </div>
+            )}
+          </div>
+
+          <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
+          <NavRow onBack={() => go(2)} nextLabel="Next — Master →" onNext={() => go(4)} nextDisabled={busy || stylePreviewBusy} />
         </div>
       );
 
       case 4: return (
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Step 4 — Master for your platform</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            Pick where you're releasing. Infinity hits the exact loudness target for that platform automatically.
+          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 14, lineHeight: 1.6 }}>
+            Where are you releasing? Infinity hits the exact loudness target for that platform automatically.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: 8, marginBottom: 18 }}>
+          {/* Selected style summary */}
+          {(() => {
+            const desc = MODE_DESCRIPTIONS[mode];
+            return desc ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', borderRadius: 12, background: `${desc.color}0e`, border: `1px solid ${desc.color}28` }}>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 12, color: 'rgba(245,248,255,.45)' }}>Sound style from Step 3: </span>
+                  <b style={{ color: desc.color }}>{mode}</b>
+                  {stylePreviewUrl && <span style={{ fontSize: 12, color: '#57f09c', marginLeft: 8 }}>✓ previewed</span>}
+                </div>
+                <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '5px 10px', whiteSpace: 'nowrap' }} onClick={() => go(3)}>Change ↩</button>
+              </div>
+            ) : null;
+          })()}
+          {/* Platform selection */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: 8, marginBottom: 16 }}>
             {PLATFORMS.map(p => (
               <button key={p.id} data-infinity-local-action="true" onClick={() => setPlatform(p.id)}
                 style={{ border: `1px solid ${platform === p.id ? 'rgba(85,233,255,.55)' : 'rgba(255,255,255,.08)'}`, background: platform === p.id ? 'rgba(85,233,255,.12)' : 'rgba(255,255,255,.04)', color: platform === p.id ? '#55e9ff' : '#f5f8ff', borderRadius: 12, padding: isMobile ? '10px 6px' : '13px 10px', fontWeight: 800, cursor: 'pointer', textAlign: 'center', fontSize: isMobile ? 11 : 13 }}>
@@ -676,35 +761,11 @@ export default function AudioMVPV2({ open, onClose }) {
               </button>
             ))}
           </div>
+          {/* Warmth + EQ fine-tune */}
           <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Mastering style</div>
-            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
-              This shapes the EQ tone and compression character of your master. It enhances and colours your existing mix — it does not change the beat or musical content itself.
-            </div>
-            <div className="chips">
-              {MODES.map(m => (
-                <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => setMode(m)}>{m}</button>
-              ))}
-            </div>
-            {(() => {
-              const desc = MODE_DESCRIPTIONS[mode];
-              if (!desc) return null;
-              return (
-                <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: `${desc.color}10`, border: `1px solid ${desc.color}30` }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                    {desc.tags.map(t => (
-                      <span key={t} style={{ fontSize: 11, fontWeight: 700, color: desc.color, background: `${desc.color}18`, borderRadius: 99, padding: '3px 9px' }}>{t}</span>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 13, color: 'rgba(245,248,255,.62)', lineHeight: 1.5 }}>{desc.detail}</div>
-                </div>
-              );
-            })()}
-            <label className="range" style={{ marginTop: 14 }}>
-              <span>Mastering intensity <b>{strength}%</b></span>
-              <input type="range" min="0" max="100" value={strength} onChange={e => setStrength(Number(e.target.value))} />
-            </label>
-            <label className="range" style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Final polish</div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>Fine-tune the master before it goes out. These stack on top of your style choice.</div>
+            <label className="range">
               <span>
                 Warmth / Analog saturation <b>{warmth}%</b>
                 <span style={{ fontWeight: 400, fontSize: 11, color: 'rgba(245,248,255,.42)', marginLeft: 6 }}>

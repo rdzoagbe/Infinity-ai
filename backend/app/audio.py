@@ -489,6 +489,55 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
     )
 
 
+def render_style_preview_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, warmth: float = 0.3) -> dict:
+    """Fast 30-second style preview — genre EQ + saturation + basic normalization only, no full master render."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available"}
+
+    preview_path = output_dir / "style-preview.mp3"
+    safe_strength = max(0, min(100, int(strength)))
+    intensity = safe_strength / 100
+    genre_key = (mode or "custom").lower().strip()
+    genre_key = "afrobeat" if "afro" in genre_key else genre_key
+    genre_key = "cinematic" if genre_key not in {"trap", "drill", "afrobeat", "house", "gospel", "soul", "experimental"} and "custom" not in genre_key else genre_key
+
+    genre_eq, compress_ratio, compress_threshold, stereo_width = _genre_filters(genre_key, intensity)
+    makeup = round(1.0 + intensity * 1.0, 2)
+    safe_warmth = max(0.0, min(1.0, float(warmth)))
+    pre_drive = round(1.0 + safe_warmth * 1.5, 2)
+    sat_threshold = round(max(0.15, 0.55 - safe_warmth * 0.4), 3)
+
+    filters: list[str] = [
+        "highpass=f=30",
+        "lowpass=f=19000",
+        *genre_eq,
+        *(([f"volume={pre_drive}", f"asoftclip=type=tanh:threshold={sat_threshold}"] if safe_warmth > 0.03 else [])),
+        "equalizer=f=8000:t=q:w=1.5:g=-1.5",
+        f"acompressor=threshold={compress_threshold:.1f}dB:ratio={compress_ratio}:attack=20:release=200:knee=4:makeup={makeup}",
+        f"extrastereo=m={stereo_width:.2f}",
+        "loudnorm=I=-14:TP=-1.5:LRA=11",
+        "alimiter=limit=0.95",
+    ]
+    cmd = [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-t", "30",
+        "-af", ",".join(filters),
+        "-codec:a", "libmp3lame", "-b:a", "192k",
+        str(preview_path),
+    ]
+    code, _stdout, stderr = run_command(cmd, timeout=120)
+    if code != 0:
+        return {"status": "failed", "stderr": stderr[-2000:]}
+    return {
+        "status": "completed",
+        "mode": mode,
+        "genre": genre_key,
+        "preview_mp3": str(preview_path),
+        "preview_exists": preview_path.exists(),
+    }
+
+
 def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():

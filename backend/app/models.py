@@ -81,6 +81,13 @@ class EnhanceMixRequest(BaseModel):
     bus_compress: bool = True
 
 
+class StylePreviewRequest(BaseModel):
+    file_id: str
+    mode: str = "Custom AI adaptive"
+    strength: int = 72
+    warmth: float = 0.3
+
+
 class SoundGenerateRequest(BaseModel):
     prompt: str
     intensity: int = 68

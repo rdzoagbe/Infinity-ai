@@ -138,6 +138,15 @@ export async function separateStemsOnBackend(fileId) {
   return parseResponse(response, "Stem separation job failed");
 }
 
+export async function previewStyleOnBackend(fileId, mode = "Custom AI adaptive", strength = 72, warmth = 0.3) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/style-preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId, mode, strength, warmth }),
+  });
+  return parseResponse(response, "Style preview failed");
+}
+
 export async function generateSoundOnBackend(prompt, intensity = 68, genre = "Cinematic", emotion = "Mystic") {
   const response = await fetch(`${API_BASE}/api/v1/sound/generate`, {
     method: "POST",
