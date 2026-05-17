@@ -211,6 +211,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const [platform, setPlatform] = useState('spotify');
   const [mode, setMode] = useState('Custom AI adaptive');
   const [strength, setStrength] = useState(72);
+  const [warmth, setWarmth] = useState(30);   // 0–100 displayed, sent as 0.0–1.0
   const [masterJob, setMasterJob] = useState(null);
   const [masterCacheBust, setMasterCacheBust] = useState(0);
   const [abMode, setAbMode] = useState('master'); // 'original' | 'master'
@@ -313,7 +314,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setBusy(true); setError('');
     setStatus(`Mastering for ${platformLabel} · ${mode}${airBoost ? ' + air boost' : ''}${overrideStrength ? ` · ${s}% intensity` : ''}…`);
     try {
-      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost);
+      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100);
       setMasterJob(job);
       const bust = Date.now();
       setMasterCacheBust(bust);
@@ -348,7 +349,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setCleanJob(null); setCleanedPreviewUrl('');
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
     setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
-    setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true);
+    setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -576,6 +577,15 @@ export default function AudioMVPV2({ open, onClose }) {
             <label className="range" style={{ marginTop: 14 }}>
               <span>Mastering intensity <b>{strength}%</b></span>
               <input type="range" min="0" max="100" value={strength} onChange={e => setStrength(Number(e.target.value))} />
+            </label>
+            <label className="range" style={{ marginTop: 10 }}>
+              <span>
+                Warmth / Analog saturation <b>{warmth}%</b>
+                <span style={{ fontWeight: 400, fontSize: 11, color: 'rgba(245,248,255,.42)', marginLeft: 6 }}>
+                  {warmth === 0 ? '— clean digital' : warmth < 35 ? '— subtle tape' : warmth < 65 ? '— analog warmth' : '— tube drive'}
+                </span>
+              </span>
+              <input type="range" min="0" max="100" value={warmth} onChange={e => setWarmth(Number(e.target.value))} />
             </label>
           </div>
           {enhancedPreviewUrl && (

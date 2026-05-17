@@ -112,7 +112,7 @@ def master_audio(payload: ProcessRequest):
     input_path = Path(file_data["stored_path"])
     output_dir = Path(file_data["workspace"]) / "renders"
     job = create_job(JobType.master, message="v10 mastering started")
-    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost)
+    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth)
     result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
     if render.get("status") == "completed":
         result["downloads"] = {

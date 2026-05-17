@@ -489,7 +489,7 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
     )
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False) -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -511,10 +511,19 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     makeup = round(1.0 + intensity * 1.2, 2)
     limit = round(0.91 + intensity * 0.07, 3)
 
+    safe_warmth = max(0.0, min(1.0, float(warmth)))
+    # Saturation threshold: 1.0 = barely touches signal, 0.3 = heavy tube drive
+    sat_threshold = round(max(0.25, 1.0 - safe_warmth * 0.72), 3)
+
     filters: list[str] = [
         "highpass=f=30",                                          # remove sub-bass rumble
         "lowpass=f=19000",                                        # gentle top rolloff
         *genre_eq,                                                # genre-specific EQ shaping
+        # Analog warmth: tanh soft-clipping adds even harmonics (tube/tape character)
+        *(
+            [f"asoftclip=type=tanh:threshold={sat_threshold}:oversample=4"]
+            if safe_warmth > 0.03 else []
+        ),
         "equalizer=f=8000:t=q:w=1.5:g=-1.5",                    # de-ess / sibilance control (always on)
         *(["treble=g=2.5:f=12000"] if air_boost else []),        # extra brightness if requested
         # Transparent soft-knee compression — musical, not robotic
@@ -548,17 +557,25 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     else:
         outputs["preview_error"] = preview_stderr[-2000:]
 
+    warmth_label = (
+        "heavy tube drive" if safe_warmth >= 0.7
+        else "moderate tape warmth" if safe_warmth >= 0.4
+        else "subtle analog warmth" if safe_warmth > 0.03
+        else "off (clean digital)"
+    )
     return {
         "status": "completed",
         "mode": mode,
         "genre": genre_key,
         "platform": platform,
         "strength": safe_strength,
+        "warmth": safe_warmth,
         "target_lufs": target_lufs,
         "filter_chain": audio_filter,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
             f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
+            f"analog saturation — {warmth_label} (tanh soft-clip)",
             "sibilance control (8 kHz, always on)",
             "transparent soft-knee compression",
             "stereo widening",
