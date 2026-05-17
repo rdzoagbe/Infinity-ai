@@ -512,16 +512,19 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     limit = round(0.91 + intensity * 0.07, 3)
 
     safe_warmth = max(0.0, min(1.0, float(warmth)))
-    # Saturation threshold: 1.0 = barely touches signal, 0.3 = heavy tube drive
-    sat_threshold = round(max(0.25, 1.0 - safe_warmth * 0.72), 3)
+    # Push signal into the saturation curve, then let loudnorm fix the level.
+    # pre_drive boosts up to 2.5x so even quiet signals hit the clipper hard.
+    pre_drive = round(1.0 + safe_warmth * 1.5, 2)
+    # Lower threshold = more saturation (0.55 at 0% → 0.15 at 100%)
+    sat_threshold = round(max(0.15, 0.55 - safe_warmth * 0.4), 3)
 
     filters: list[str] = [
         "highpass=f=30",                                          # remove sub-bass rumble
         "lowpass=f=19000",                                        # gentle top rolloff
         *genre_eq,                                                # genre-specific EQ shaping
-        # Analog warmth: tanh soft-clipping adds even harmonics (tube/tape character)
+        # Analog warmth: boost signal INTO tanh clipper, loudnorm corrects output level
         *(
-            [f"asoftclip=type=tanh:threshold={sat_threshold}:oversample=4"]
+            [f"volume={pre_drive}", f"asoftclip=type=tanh:threshold={sat_threshold}"]
             if safe_warmth > 0.03 else []
         ),
         "equalizer=f=8000:t=q:w=1.5:g=-1.5",                    # de-ess / sibilance control (always on)
