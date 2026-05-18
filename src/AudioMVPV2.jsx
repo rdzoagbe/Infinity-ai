@@ -8,6 +8,7 @@ import {
   cleanFullMixOnBackend,
   enhanceMixOnBackend,
   masterAudioOnBackend,
+  mixVocalBeatOnBackend,
   previewStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
@@ -53,6 +54,7 @@ const HIT_HARDER_TIPS = [
 ];
 
 const HISTORY_KEY = 'infinity_master_history';
+const TEMPLATES_KEY = 'infinity_mix_templates';
 
 function loadHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
@@ -62,6 +64,17 @@ function saveToHistory(entry) {
     const h = loadHistory();
     h.unshift(entry);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, 8)));
+  } catch {}
+}
+
+function loadTemplates() {
+  try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '{}'); } catch { return {}; }
+}
+function saveTemplate(genre, settings) {
+  try {
+    const t = loadTemplates();
+    t[genre] = { ...settings, savedAt: new Date().toISOString() };
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(t));
   } catch {}
 }
 
@@ -295,6 +308,15 @@ export default function AudioMVPV2({ open, onClose }) {
   const [refLufs, setRefLufs] = useState(null);
   const [refBusy, setRefBusy] = useState(false);
 
+  // vocals-only + beat mode
+  const [isVocalOnly, setIsVocalOnly] = useState(false);
+  const [beatFile, setBeatFile] = useState(null);
+  const [beatFileId, setBeatFileId] = useState(null);
+  const [vocalBeatBusy, setVocalBeatBusy] = useState(false);
+
+  // mix templates (learn from past masters)
+  const [templates, setTemplates] = useState(() => loadTemplates());
+
   const [masterJob, setMasterJob] = useState(null);
   const [masterCacheBust, setMasterCacheBust] = useState(0);
   const [abMode, setAbMode] = useState('master'); // 'original' | 'master'
@@ -369,6 +391,40 @@ export default function AudioMVPV2({ open, onClose }) {
       setRefLufs(lufs);
     } catch {}
     finally { setRefBusy(false); }
+  };
+
+  const handleBeatFile = async (file) => {
+    setBeatFile(file);
+    setVocalBeatBusy(true); setError('');
+    setStatus('Uploading beat…');
+    try {
+      const res = await uploadAudioToBackend(file);
+      setBeatFileId(res.file.file_id);
+      setStatus('Beat uploaded. Click "Mix vocals + beat" to combine them.');
+    } catch (err) {
+      setError(`Beat upload failed: ${safeError(err)}`);
+    } finally {
+      setVocalBeatBusy(false);
+    }
+  };
+
+  const runVocalBeatMix = async () => {
+    if (!songBackend?.file_id || !beatFileId) return;
+    setVocalBeatBusy(true); setError('');
+    setStatus('Mixing vocals with beat — applying vocal clean, EQ, stereo, compression…');
+    try {
+      const job = await mixVocalBeatOnBackend(songBackend.file_id, beatFileId);
+      const mid = job?.result?.mixed_file_id;
+      if (mid) {
+        setEnhancedFileId(mid);
+        setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`));
+      }
+      setStatus('Vocals + beat mixed. Listen below, then choose your sound style.');
+    } catch (err) {
+      setError(`Vocal/beat mix failed: ${safeError(err)}`);
+    } finally {
+      setVocalBeatBusy(false);
+    }
   };
 
   const runClean = async () => {
@@ -454,6 +510,8 @@ export default function AudioMVPV2({ open, onClose }) {
       };
       saveToHistory(entry);
       setHistory(loadHistory());
+      saveTemplate(mode, { strength: s, warmth, lowEq, midEq, highEq });
+      setTemplates(loadTemplates());
       // emit to project library
       const dl = job?.result?.downloads || {};
       const previewUrl = dl.master_preview ? backendUrl(dl.master_preview) : '';
@@ -496,6 +554,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
+    setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -615,7 +674,64 @@ export default function AudioMVPV2({ open, onClose }) {
               <audio controls src={cleanedPreviewUrl} style={{ width: '100%', marginTop: 8 }} />
             </div>
           )}
-          <StatusBox message={status} error={error} busy={busy} />
+
+          {/* Vocals-only: add a beat */}
+          <div style={{ ...card, marginTop: 14 }}>
+            <div
+              data-infinity-local-action="true"
+              onClick={() => setIsVocalOnly(!isVocalOnly)}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', userSelect: 'none' }}
+            >
+              <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${isVocalOnly ? '#ffcf66' : 'rgba(255,255,255,.2)'}`, background: isVocalOnly ? 'rgba(255,207,102,.18)' : 'transparent', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#ffcf66' }}>
+                {isVocalOnly ? '✓' : ''}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: isVocalOnly ? '#ffcf66' : '#f5f8ff' }}>My upload is vocals only — add a beat</div>
+                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 3, lineHeight: 1.5 }}>Upload a beat below and we'll mix it with your cleaned vocals before mastering.</div>
+              </div>
+            </div>
+            {isVocalOnly && (
+              <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
+                <label
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, border: '1px dashed rgba(255,207,102,.35)', background: 'rgba(255,207,102,.05)', borderRadius: 14, padding: 20, cursor: vocalBeatBusy ? 'not-allowed' : 'pointer', opacity: vocalBeatBusy ? 0.5 : 1 }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (!vocalBeatBusy && e.dataTransfer.files[0]) handleBeatFile(e.dataTransfer.files[0]); }}
+                >
+                  <input type="file" accept="audio/*,.mp3,.wav,.flac,.m4a" style={{ display: 'none' }} disabled={vocalBeatBusy} onChange={e => { if (e.target.files[0]) handleBeatFile(e.target.files[0]); }} />
+                  <span style={{ fontSize: 22 }}>🥁</span>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#ffcf66' }}>
+                      {beatFile ? beatFile.name : 'Drop your beat here or click to browse'}
+                    </div>
+                    <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 12, marginTop: 3 }}>
+                      {beatFile ? `${formatBytes(beatFile.size)} — beat uploaded` : 'MP3 · WAV · any format'}
+                    </div>
+                  </div>
+                </label>
+                {beatFileId && (
+                  <button
+                    className="primary"
+                    data-infinity-local-action="true"
+                    disabled={vocalBeatBusy}
+                    onClick={runVocalBeatMix}
+                    style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#ffcf66,#ff9f43)' }}
+                  >
+                    <Sparkles size={15} /> {vocalBeatBusy ? 'Mixing vocals + beat…' : 'Mix vocals + beat'}
+                  </button>
+                )}
+                {enhancedPreviewUrl && isVocalOnly && (
+                  <div style={{ ...cardGreen, marginTop: 14 }}>
+                    <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Vocals + beat mixed — listen:</div>
+                    <Waveform src={enhancedPreviewUrl} color="#ffcf66" />
+                    <audio controls src={enhancedPreviewUrl} style={{ width: '100%', marginTop: 8 }} />
+                    <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginTop: 6 }}>Sounding good? Continue to choose your sound style.</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <StatusBox message={status} error={error} busy={busy || vocalBeatBusy} />
           <NavRow
             onBack={() => go(1)}
             secondaryLabel="Skip — go to mix"
@@ -690,6 +806,33 @@ export default function AudioMVPV2({ open, onClose }) {
                 <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => { setMode(m); setStylePreviewUrl(''); }}>{m}</button>
               ))}
             </div>
+            {/* Template recall — show when genre has saved settings from a previous master */}
+            {templates[mode] && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,207,102,.08)', border: '1px solid rgba(255,207,102,.28)', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, fontSize: 12, color: 'rgba(245,248,255,.7)', lineHeight: 1.5 }}>
+                  <b style={{ color: '#ffcf66' }}>Saved from last time:</b>{' '}
+                  {mode} · Intensity {templates[mode].strength}% · Warmth {templates[mode].warmth}%
+                  {templates[mode].lowEq !== 0 && ` · Low ${templates[mode].lowEq > 0 ? '+' : ''}${templates[mode].lowEq}dB`}
+                  {templates[mode].midEq !== 0 && ` · Mid ${templates[mode].midEq > 0 ? '+' : ''}${templates[mode].midEq}dB`}
+                  {templates[mode].highEq !== 0 && ` · High ${templates[mode].highEq > 0 ? '+' : ''}${templates[mode].highEq}dB`}
+                </div>
+                <button
+                  data-infinity-local-action="true"
+                  className="secondary"
+                  style={{ fontSize: 12, padding: '6px 12px', border: '1px solid rgba(255,207,102,.4)', color: '#ffcf66', whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    setStrength(templates[mode].strength);
+                    setWarmth(templates[mode].warmth);
+                    setLowEq(templates[mode].lowEq);
+                    setMidEq(templates[mode].midEq);
+                    setHighEq(templates[mode].highEq);
+                    setStylePreviewUrl('');
+                  }}
+                >
+                  Use these →
+                </button>
+              </div>
+            )}
             {(() => {
               const desc = MODE_DESCRIPTIONS[mode];
               if (!desc) return null;
@@ -737,13 +880,35 @@ export default function AudioMVPV2({ open, onClose }) {
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 14, lineHeight: 1.6 }}>
             Where are you releasing? Infinity hits the exact loudness target for that platform automatically.
           </p>
+          {/* Listen before you master */}
+          {(stylePreviewUrl || enhancedPreviewUrl) && (() => {
+            const previewSrc = stylePreviewUrl || enhancedPreviewUrl;
+            const desc = MODE_DESCRIPTIONS[mode];
+            const label = stylePreviewUrl
+              ? `Your mix in ${mode} — listen before mastering`
+              : 'Your mix — listen before mastering';
+            return (
+              <div style={{ ...card, marginBottom: 16, border: `1px solid ${desc?.color || '#55e9ff'}28`, background: `${desc?.color || '#55e9ff'}08` }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: desc?.color || '#55e9ff' }}>{label}</div>
+                <Waveform src={previewSrc} color={desc?.color || '#55e9ff'} />
+                <audio key={previewSrc} controls src={previewSrc} style={{ width: '100%', marginTop: 8 }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)' }}>
+                    Happy with the sound? Set your platform and final tweaks below, then hit Master.
+                  </div>
+                  <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '5px 10px' }} onClick={() => go(3)}>← Change style</button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Selected style summary */}
           {(() => {
             const desc = MODE_DESCRIPTIONS[mode];
             return desc ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', borderRadius: 12, background: `${desc.color}0e`, border: `1px solid ${desc.color}28` }}>
                 <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 12, color: 'rgba(245,248,255,.45)' }}>Sound style from Step 3: </span>
+                  <span style={{ fontSize: 12, color: 'rgba(245,248,255,.45)' }}>Sound style: </span>
                   <b style={{ color: desc.color }}>{mode}</b>
                   {stylePreviewUrl && <span style={{ fontSize: 12, color: '#57f09c', marginLeft: 8 }}>✓ previewed</span>}
                 </div>
@@ -818,22 +983,7 @@ export default function AudioMVPV2({ open, onClose }) {
                 </span>
               )}
             </label>
-            <label className="range" style={{ marginTop: 10 }}>
-              <span>
-                Warmth / Analog saturation <b>{warmth}%</b>
-                <span style={{ fontWeight: 400, fontSize: 11, color: 'rgba(245,248,255,.42)', marginLeft: 6 }}>
-                  {warmth === 0 ? '— clean digital' : warmth < 35 ? '— subtle tape' : warmth < 65 ? '— analog warmth' : '— tube drive'}
-                </span>
-              </span>
-              <input type="range" min="0" max="100" value={warmth} onChange={e => setWarmth(Number(e.target.value))} />
-            </label>
           </div>
-          {enhancedPreviewUrl && (
-            <div style={{ ...card, marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)', marginBottom: 8 }}>Pre-master preview:</div>
-              <audio controls src={enhancedPreviewUrl} style={{ width: '100%' }} />
-            </div>
-          )}
           <button className="primary" onClick={() => runMaster()} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 8, width: isMobile ? '100%' : 'auto', justifyContent: 'center' }}>
             <Sparkles size={16} /> {busy ? 'Mastering...' : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
           </button>
