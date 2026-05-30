@@ -219,6 +219,36 @@ function DrillPanel({ tab, projects, onOpenProject }) {
   return null;
 }
 
+function StudioShell({ children, onBack, project, cloudMode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      {children}
+      {/* Top-left nav bar */}
+      <div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="secondary" onClick={onBack}>← Dashboard</button>
+        <span className="pill">{project?.title || 'Infinity Studio'}</span>
+        <ModeBadge cloudMode={cloudMode} />
+      </div>
+      {/* Library toggle button */}
+      <button
+        type="button"
+        data-infinity-local-action="true"
+        onClick={() => setOpen(v => !v)}
+        style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 9997, background: open ? '#55e9ff' : 'rgba(17,20,33,.92)', color: open ? '#090b14' : '#f5f8ff', border: '1px solid rgba(85,233,255,.35)', borderRadius: 99, padding: '10px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', gap: 8 }}
+      >
+        <Library size={15} /> {open ? 'Close library' : 'Project library'}
+      </button>
+      {/* Slide-up library drawer */}
+      {open && (
+        <div data-infinity-auth="true" style={{ position: 'fixed', right: 18, bottom: 66, zIndex: 9995, width: 'min(640px, calc(100vw - 36px))', maxHeight: '72vh', overflowY: 'auto', borderRadius: 20, boxShadow: '0 22px 80px rgba(0,0,0,.6)' }}>
+          <ProjectLibraryPanel project={project} compact />
+        </div>
+      )}
+    </>
+  );
+}
+
 function Dashboard({ profile, projects, onCreate, onLogout, onOpenProject, onDeleteProject, cloudMode, loading, error }) {
   const [activeTab, setActiveTab] = useState(null);
 
@@ -366,6 +396,6 @@ export default function AuthDashboardV122({ children }) {
   const refreshProjects = async () => { if (cloudMode && profile?.id) { setLoading(true); const rows = await listCloudProjects(profile.id); setProjects(rows.map(normalizeProject)); setLoading(false); } else { setProjects(loadJson(STORAGE_KEYS.projects, [])); } };
 
   if (!profile) return <StartPrivateSession onLogin={setProfile} />;
-  if (studioOpen) return <>{children}<div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button type="button" className="secondary" onClick={() => { setStudioOpen(false); refreshProjects().catch(() => {}); }}>Back to dashboard</button><span className="pill">{currentProject?.title || 'Infinity Studio'}</span><ModeBadge cloudMode={cloudMode} /></div><div data-infinity-auth="true" style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 9995, width: 'min(600px, calc(100vw - 36px))', maxHeight: '50vh', overflowY: 'auto' }}><ProjectLibraryPanel project={currentProject} compact /></div></>;
+  if (studioOpen) return <StudioShell onBack={() => { setStudioOpen(false); refreshProjects().catch(() => {}); }} project={currentProject} cloudMode={cloudMode}>{children}</StudioShell>;
   return <><Dashboard profile={profile} projects={projects} onCreate={() => setShowCreate(true)} onLogout={logout} onOpenProject={openProject} onDeleteProject={deleteProject} cloudMode={cloudMode} loading={loading} error={error} />{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} cloudMode={cloudMode} /> : null}</>;
 }
