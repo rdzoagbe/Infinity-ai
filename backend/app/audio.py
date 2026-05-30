@@ -693,6 +693,57 @@ def generate_prompt_sound(output_dir: Path, asset_id: str, prompt: str, intensit
     }
 
 
+def separate_stems_with_ffmpeg(input_path: Path, stems_dir: Path) -> dict:
+    """FFmpeg Mid/Side stem separation — CPU-only, no GPU needed.
+    Vocals = center/mid channel content. Instrumental = stereo-difference (side).
+    Not as precise as Demucs but fully functional on Railway CPU (~10s).
+    """
+    stems_dir.mkdir(parents=True, exist_ok=True)
+    if not has_ffmpeg():
+        return {"status": "skipped", "reason": "FFmpeg not available"}
+
+    vocal_out = stems_dir / "vocals.wav"
+    instrumental_out = stems_dir / "instrumental.wav"
+
+    # Mid channel = (L+R)/2 — center-panned content (typically lead vocal)
+    vocal_filter = ",".join([
+        "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1",
+        "equalizer=f=90:t=h:width_type=h",    # cut sub-bass rumble
+        "equalizer=f=9000:t=l:width_type=h",  # cut harsh air
+        "loudnorm=I=-14:TP=-1",
+    ])
+
+    # Side channel = (L-R)/2 — stereo spread content (instruments, pads, fx)
+    instrumental_filter = ",".join([
+        "pan=stereo|c0=0.5*c0-0.5*c1|c1=0.5*c1-0.5*c0",
+        "loudnorm=I=-14:TP=-1",
+    ])
+
+    results: dict = {}
+    for stem_name, af, out_path in [
+        ("vocals", vocal_filter, vocal_out),
+        ("instrumental", instrumental_filter, instrumental_out),
+    ]:
+        code, _stdout, stderr = run_command(
+            ["ffmpeg", "-y", "-i", str(input_path), "-af", af, "-ar", "44100", str(out_path)],
+            timeout=120,
+        )
+        if code != 0 or not out_path.exists():
+            return {"status": "failed", "stem": stem_name, "stderr": stderr[-2000:]}
+        results[stem_name] = {
+            "path": str(out_path),
+            "exists": True,
+            "size_bytes": out_path.stat().st_size,
+        }
+
+    return {
+        "status": "completed",
+        "method": "ffmpeg-ms",
+        "note": "Mid/Side separation — center content (vocals) + stereo-difference (instrumental). CPU-only.",
+        "stems": results,
+    }
+
+
 def separate_stems_with_demucs(input_path: Path, stems_dir: Path, model: str = "htdemucs") -> dict:
     stems_dir.mkdir(parents=True, exist_ok=True)
 

@@ -2,12 +2,13 @@ from pathlib import Path
 import json
 import shutil
 import threading
+from datetime import datetime
 import aiofiles
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs
+from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs, separate_stems_with_ffmpeg
 from .config import get_settings
 from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress
@@ -164,18 +165,38 @@ def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewReques
 
 
 @app.post("/api/v1/audio/separate-stems")
-def separate_stems(payload: AnalyzeRequest):
+def separate_stems(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
-    input_path = Path(file_data["stored_path"])
-    stems_dir = Path(file_data["workspace"]) / "stems"
-    job = create_job(JobType.separate_stems, message="Stem separation started")
-    separation = separate_stems_with_demucs(input_path, stems_dir)
-    downloads = {}
-    if separation.get("status") == "completed":
-        for stem_name in separation.get("stems", {}).keys():
-            downloads[stem_name] = f"/api/v1/files/{payload.file_id}/download/stem-{stem_name}"
-    result = {"file_id": payload.file_id, "separation": separation, "downloads": downloads, "note": "Real stems require Demucs installed in backend environment."}
-    return complete_job(job, result, "Stem separation complete" if separation.get("status") == "completed" else "Stem separation skipped or failed")
+    job = create_job(JobType.separate_stems, message="Stem separation queued")
+    background_tasks.add_task(_run_separate_stems, job.job_id, file_data)
+    return {"job_id": job.job_id, "status": "processing", "message": "Stem separation started"}
+
+def _run_separate_stems(job_id: str, file_data: dict):
+    try:
+        update_job_progress(job_id, 10, "Loading audio…")
+        input_path = Path(file_data["stored_path"])
+        stems_dir = Path(file_data["workspace"]) / "stems"
+        update_job_progress(job_id, 30, "Separating stems…")
+        if has_demucs():
+            separation = separate_stems_with_demucs(input_path, stems_dir)
+        else:
+            separation = separate_stems_with_ffmpeg(input_path, stems_dir)
+        update_job_progress(job_id, 85, "Preparing downloads…")
+        downloads = {}
+        if separation.get("status") == "completed":
+            for stem_name in separation.get("stems", {}).keys():
+                downloads[stem_name] = f"/api/v1/files/{file_data['file_id']}/download/stem-{stem_name}"
+        result = {
+            "file_id": file_data["file_id"],
+            "separation": separation,
+            "downloads": downloads,
+            "method": separation.get("method", "demucs"),
+            "note": separation.get("note", ""),
+        }
+        msg = "Stem separation complete" if separation.get("status") == "completed" else f"Stem separation failed: {separation.get('reason', separation.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 @app.post("/api/v1/sound/generate")
 def generate_sound(payload: SoundGenerateRequest):
@@ -222,6 +243,62 @@ def export_package(payload: AnalyzeRequest):
     result = {"file_id": payload.file_id, "formats": list(downloads.keys()), "downloads": downloads}
     return complete_job(job, result, "Infinity v10 export package ready")
 
+@app.post("/api/v1/export/release-package")
+def build_release_package(payload: AnalyzeRequest):
+    import zipfile, io
+    file_data = get_file_or_404(payload.file_id)
+    workspace = Path(file_data["workspace"])
+    renders = workspace / "renders"
+    exports_dir = workspace / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+
+    versions = []
+    file_map = {
+        "Master WAV (Lossless)": renders / "mastered.wav",
+        "Master MP3 320k": renders / "mastered.mp3",
+        "Master Preview (30s)": renders / "mastered-preview.mp3",
+        "Style Preview": renders / "style-preview.mp3",
+        "Mix Enhanced": renders / "enhanced.wav",
+        "Mix Cleaned": renders / "mix-cleaned.wav",
+    }
+    for label, path in file_map.items():
+        if path.exists():
+            versions.append({"name": label, "filename": path.name, "size_bytes": path.stat().st_size})
+
+    metadata = {
+        "release_title": file_data.get("filename", "Unknown").rsplit(".", 1)[0],
+        "artist": "Unknown Artist",
+        "genre": "Unknown",
+        "status": "Ready for distribution",
+        "package_ready": bool(versions),
+        "checklist_completed": len(versions),
+        "checklist_total": 6,
+        "versions": versions,
+        "downloads": {
+            "master_wav": f"/api/v1/files/{payload.file_id}/download/master-wav" if (renders / "mastered.wav").exists() else None,
+            "master_mp3": f"/api/v1/files/{payload.file_id}/download/master-mp3" if (renders / "mastered.mp3").exists() else None,
+            "master_preview": f"/api/v1/files/{payload.file_id}/download/master-preview" if (renders / "mastered-preview.mp3").exists() else None,
+        },
+        "created_at": datetime.utcnow().isoformat(),
+        "file_id": payload.file_id,
+    }
+    metadata["downloads"] = {k: v for k, v in metadata["downloads"].items() if v}
+
+    # write metadata JSON
+    meta_path = exports_dir / "release-package.json"
+    meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    job = create_job(JobType.export, message="Release package ready")
+    result = {
+        "file_id": payload.file_id,
+        "metadata": metadata,
+        "downloads": {
+            "release_package_json": f"/api/v1/files/{payload.file_id}/download/release-package",
+        },
+    }
+    return complete_job(job, result, "Release package ready")
+
+
 @app.get("/api/v1/files/{file_id}/download/{asset_type}")
 def download_file(file_id: str, asset_type: str):
     file_data = get_file_or_404(file_id)
@@ -243,10 +320,11 @@ def download_file(file_id: str, asset_type: str):
         "enhanced-wav": workspace / "renders" / "enhanced.wav",
         "enhanced-mp3": workspace / "renders" / "enhanced.mp3",
         "style-preview": workspace / "renders" / "style-preview.mp3",
+        "release-package": workspace / "exports" / "release-package.json",
     }
     if asset_type.startswith("stem-"):
         stem_name = asset_type.replace("stem-", "", 1)
-        if stem_name not in {"vocals", "drums", "bass", "other"}:
+        if stem_name not in {"vocals", "drums", "bass", "other", "instrumental"}:
             raise HTTPException(status_code=400, detail="Unknown stem type")
         paths[asset_type] = workspace / "stems" / f"{stem_name}.wav"
     path = paths.get(asset_type)

@@ -200,4 +200,13 @@ export async function uploadAndMeasureLufsOnBackend(file) {
   return analyzeData?.integrated_lufs ?? null;
 }
 
+export async function buildReleasePackageOnBackend(fileId) {
+  const response = await fetch(`${API_BASE}/api/v1/export/release-package`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  return parseResponse(response, "Release package failed");
+}
+
 export { API_BASE };
