@@ -30,7 +30,30 @@ function resolveAssetUrl(url) { if (!url) return ''; return url.startsWith('http
 function Badge({ children }) { return <span className="pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{children}</span>; }
 function ModeBadge({ cloudMode }) { return <Badge>{cloudMode ? <Cloud size={14} /> : <Lock size={14} />}{cloudMode ? 'Cloud Mode' : 'Local Mode'}</Badge>; }
 function StateBadge({ state }) { const color = state === 'Available' ? '#57f09c' : state === 'Beta' ? '#55e9ff' : '#ffcf66'; return <span className="pill" style={{ color, borderColor: `${color}55`, background: `${color}18` }}>{state}</span>; }
-function Stat({ label, value, icon: Icon }) { return <div className="card" style={{ boxShadow: 'none' }}><Icon size={18} color="#55e9ff" /><b style={{ display: 'block', fontSize: 32, marginTop: 8 }}>{value}</b><span className="muted">{label}</span></div>; }
+
+function Stat({ label, value, icon: Icon, active, onClick, action, color = '#55e9ff', hint }) {
+  return (
+    <div
+      className="card"
+      data-infinity-local-action="true"
+      onClick={onClick}
+      style={{
+        boxShadow: 'none',
+        cursor: onClick ? 'pointer' : 'default',
+        border: active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,.06)',
+        background: active ? `${color}0e` : 'rgba(255,255,255,.03)',
+        transition: 'all .18s',
+        position: 'relative',
+      }}
+    >
+      <Icon size={18} color={color} />
+      <b style={{ display: 'block', fontSize: 32, marginTop: 8, color: active ? color : '#f5f8ff' }}>{value}</b>
+      <span className="muted">{label}</span>
+      {hint && <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginTop: 4, lineHeight: 1.4 }}>{hint}</div>}
+      {action && <div style={{ fontSize: 11, color, marginTop: 6, fontWeight: 700 }}>{action} →</div>}
+    </div>
+  );
+}
 function AssetLinks({ asset }) { const links = []; if (asset.preview_url) links.push(['Preview', asset.preview_url]); if (asset.download_url) links.push(['Download', asset.download_url]); if (Array.isArray(asset.assets)) asset.assets.forEach((item) => { if (item?.download_url) links.push([item.type?.toUpperCase?.() || item.name || 'Asset', item.download_url]); }); if (!links.length) return null; return <div className="actions" style={{ marginTop: 8 }}>{links.slice(0, 4).map(([label, url], index) => <a key={`${label}-${index}`} href={resolveAssetUrl(url)} target="_blank" rel="noreferrer" className="secondary" style={{ padding: '8px 10px', fontSize: 12 }}>{label}</a>)}</div>; }
 
 function PasswordInput({ value, onChange, disabled }) {
@@ -79,9 +102,233 @@ function ProjectCard({ project, onOpen, onDelete }) {
   return <div className="card project-card" style={{ boxShadow: 'none' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}><div><p className="eyebrow">{project.type}</p><h3 style={{ margin: '6px 0 4px' }}>{project.title}</h3><p className="muted" style={{ margin: 0 }}>{project.artist} - {project.genre}</p></div><span className="pill">{project.status}</span></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 10, marginTop: 16 }}><div><span className="muted">Files</span><b style={{ display: 'block' }}>{Array.isArray(project.files) ? project.files.length : 0}</b></div><div><span className="muted">Sounds</span><b style={{ display: 'block' }}>{generatedSounds(project).length}</b></div><div><span className="muted">Masters</span><b style={{ display: 'block' }}>{masteredVersions(project).length}</b></div><div><span className="muted">Releases</span><b style={{ display: 'block' }}>{releasePackages(project).length}</b></div></div><p className="muted" style={{ lineHeight: 1.6, minHeight: 44 }}>{project.notes || 'No notes yet.'}</p><p className="muted" style={{ fontSize: 12 }}>Updated {formatDate(project.updatedAt)}</p><div className="actions"><button type="button" className="primary" onClick={() => onOpen(project)}><Music2 size={15} /> Open studio</button><button type="button" className="secondary" onClick={() => onDelete(project.id)}>Delete</button></div></div>;
 }
 
+function DrillPanel({ tab, projects, onOpenProject }) {
+  const allFiles = projects.flatMap(p => (Array.isArray(p.files) ? p.files : []).map(f => ({ ...f, _project: p.title })));
+  const allMasters = projects.flatMap(p => masteredVersions(p).map(m => ({ ...m, _project: p.title })));
+  const allSounds = projects.flatMap(p => generatedSounds(p).map(s => ({ ...s, _project: p.title })));
+  const allReleases = projects.flatMap(p => releasePackages(p).map(r => ({ ...r, _project: p.title })));
+  const allExports = projects.flatMap(p => exportPackages(p).map(e => ({ ...e, _project: p.title })));
+
+  const row = { padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' };
+  const meta = { fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 2 };
+
+  if (tab === 'files') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Uploaded files across all projects</p>
+      {allFiles.length === 0 && <p className="muted">No files yet — upload a track in the studio to get started.</p>}
+      {allFiles.map((f, i) => (
+        <div key={f.id || i} style={row}>
+          <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{f.name || f.filename || 'Audio file'}</div>
+            <div style={meta}>{f._project} · {formatBytes(f.size || f.size_bytes)} · {formatDate(f.linked_at)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (tab === 'masters') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Mastered versions across all projects</p>
+      {allMasters.length === 0 && <p className="muted">No masters yet — complete the Master step in the studio to see versions here.</p>}
+      {allMasters.map((m, i) => (
+        <div key={m.id || i} style={row}>
+          <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
+            <div style={meta}>{m._project} · {m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
+            <AssetLinks asset={m} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (tab === 'sounds') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Generated sounds across all projects</p>
+      {allSounds.length === 0 && <p className="muted">No generated sounds yet — use the AI Sound Generator to create WAV assets.</p>}
+      {allSounds.map((s, i) => (
+        <div key={s.id || i} style={row}>
+          <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
+            <div style={meta}>{s._project} · {s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
+            <AssetLinks asset={s} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (tab === 'releases') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Release packages across all projects</p>
+      {allReleases.length === 0 && (
+        <div>
+          <p className="muted" style={{ marginBottom: 12 }}>No release packages yet. After mastering a track, a release package will appear here with all your download links and metadata.</p>
+          <div style={{ background: 'rgba(255,207,102,.08)', border: '1px solid rgba(255,207,102,.25)', borderRadius: 14, padding: '14px 16px' }}>
+            <div style={{ fontWeight: 700, color: '#ffcf66', marginBottom: 6 }}>How to create a release package</div>
+            <div style={{ fontSize: 13, color: 'rgba(245,248,255,.6)', lineHeight: 1.6 }}>
+              1. Open a project → Open Studio<br />
+              2. Upload your track and complete mastering<br />
+              3. The release package appears here automatically with WAV, MP3 and metadata
+            </div>
+          </div>
+        </div>
+      )}
+      {allReleases.map((r, i) => <ReleasePackageCard key={r.id || i} pkg={r} />)}
+    </div>
+  );
+
+  if (tab === 'exports') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Export packages across all projects</p>
+      {allExports.length === 0 && <p className="muted">No exports yet — use the Export button in the studio Download step.</p>}
+      {allExports.map((e, i) => (
+        <div key={e.id || i} style={row}>
+          <Library size={15} color="#ffcf66" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{e.name || 'Export package'}</div>
+            <div style={meta}>{e._project} · {formatDate(e.created_at || e.linked_at)}</div>
+            <AssetLinks asset={e} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (tab === 'projects') return (
+    <div>
+      <p className="eyebrow" style={{ marginBottom: 12 }}>All projects</p>
+      {projects.map((project) => (
+        <div key={project.id} style={{ ...row, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{project.title}</div>
+            <div style={meta}>{project.artist} · {project.genre} · {project.status} · Updated {formatDate(project.updatedAt)}</div>
+          </div>
+          <button type="button" className="primary" data-infinity-local-action="true" onClick={() => onOpenProject(project)} style={{ fontSize: 12, padding: '8px 14px' }}>
+            <Music2 size={13} /> Open studio
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return null;
+}
+
 function Dashboard({ profile, projects, onCreate, onLogout, onOpenProject, onDeleteProject, cloudMode, loading, error }) {
-  const stats = useMemo(() => ({ total: projects.length, active: projects.filter((project) => ['In production', 'Ready for mastering', 'Ready for upload', 'Ready for release'].includes(project.status)).length, files: projects.reduce((sum, project) => sum + (Array.isArray(project.files) ? project.files.length : 0), 0), sounds: projects.reduce((sum, project) => sum + generatedSounds(project).length, 0), masters: projects.reduce((sum, project) => sum + masteredVersions(project).length, 0), releases: projects.reduce((sum, project) => sum + releasePackages(project).length, 0) }), [projects]);
-  return <main data-infinity-auth="true" style={shell}><div style={{ maxWidth: 1280, margin: '0 auto', display: 'grid', gap: 18 }}><header style={{ ...panel, padding: 20, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}><div style={{ display: 'flex', gap: 14, alignItems: 'center' }}><div className="logo" /><div><p className="eyebrow">Infinity private dashboard</p><h2 style={{ margin: '4px 0 0' }}>Welcome, {profile.name}</h2><p className="muted" style={{ margin: '6px 0 0' }}>{profile.role} - {profile.email}</p></div></div><div className="actions"><ModeBadge cloudMode={cloudMode} /><button type="button" className="primary" onClick={onCreate}><FolderPlus size={16} /> New project</button><button type="button" className="secondary" onClick={onLogout}><LogOut size={16} /> Logout</button></div></header>{error ? <div style={{ border: '1px solid rgba(255,90,90,.35)', background: 'rgba(255,90,90,.1)', color: '#ffd8d8', borderRadius: 16, padding: 12 }}>{error}</div> : null}<section className="stats"><Stat label="Projects" value={loading ? '...' : stats.total} icon={Music2} /><Stat label="Active" value={loading ? '...' : stats.active} icon={Music2} /><Stat label="Files" value={loading ? '...' : stats.files} icon={FileAudio} /><Stat label="Sounds" value={loading ? '...' : stats.sounds} icon={Sparkles} /><Stat label="Masters" value={loading ? '...' : stats.masters} icon={Library} /><Stat label="Releases" value={loading ? '...' : stats.releases} icon={Rocket} /></section><section style={{ ...panel, padding: 22 }}><div className="section-head"><div><p className="eyebrow">Projects</p><h2>Private song sessions</h2><p className="muted wide">{cloudMode ? 'Projects are loaded from Supabase and protected by Row Level Security.' : 'Projects are stored locally in this browser until Supabase is configured or selected.'}</p></div><button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create project</button></div>{projects.length ? <div className="three">{projects.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpenProject} onDelete={onDeleteProject} />)}</div> : <div className="card" style={{ boxShadow: 'none', textAlign: 'center' }}><FolderPlus size={34} color="#55e9ff" /><h3>{loading ? 'Loading projects...' : 'No private project yet'}</h3><p className="muted">Create your first project to start the Infinity song cycle.</p><button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create first project</button></div>}</section>{projects[0] ? <ProjectLibraryPanel project={projects[0]} /> : null}</div></main>;
+  const [activeTab, setActiveTab] = useState(null);
+
+  const stats = useMemo(() => ({
+    total: projects.length,
+    active: projects.filter((p) => ['In production', 'Ready for mastering', 'Ready for upload', 'Ready for release'].includes(p.status)).length,
+    files: projects.reduce((sum, p) => sum + (Array.isArray(p.files) ? p.files.length : 0), 0),
+    sounds: projects.reduce((sum, p) => sum + generatedSounds(p).length, 0),
+    masters: projects.reduce((sum, p) => sum + masteredVersions(p).length, 0),
+    releases: projects.reduce((sum, p) => sum + releasePackages(p).length, 0),
+    exports: projects.reduce((sum, p) => sum + exportPackages(p).length, 0),
+  }), [projects]);
+
+  const toggle = (tab) => setActiveTab(prev => prev === tab ? null : tab);
+  const activeProject = projects.find(p => ['In production', 'Ready for mastering', 'Ready for upload', 'Ready for release'].includes(p.status)) || projects[0];
+
+  return (
+    <main data-infinity-auth="true" style={shell}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', display: 'grid', gap: 18 }}>
+        {/* Header */}
+        <header style={{ ...panel, padding: 20, display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <div className="logo" />
+            <div>
+              <p className="eyebrow">Infinity private dashboard</p>
+              <h2 style={{ margin: '4px 0 0' }}>Welcome, {profile.name}</h2>
+              <p className="muted" style={{ margin: '6px 0 0' }}>{profile.role} · {profile.email}</p>
+            </div>
+          </div>
+          <div className="actions">
+            <ModeBadge cloudMode={cloudMode} />
+            <button type="button" className="primary" onClick={onCreate}><FolderPlus size={16} /> New project</button>
+            <button type="button" className="secondary" onClick={onLogout}><LogOut size={16} /> Logout</button>
+          </div>
+        </header>
+
+        {error && <div style={{ border: '1px solid rgba(255,90,90,.35)', background: 'rgba(255,90,90,.1)', color: '#ffd8d8', borderRadius: 16, padding: 12 }}>{error}</div>}
+
+        {/* Active project banner */}
+        {activeProject && (
+          <div style={{ ...panel, padding: '16px 22px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', borderLeft: '3px solid #55e9ff' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>Current project</p>
+              <div style={{ fontWeight: 900, fontSize: 20, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeProject.title}</div>
+              <div style={{ fontSize: 13, color: 'rgba(245,248,255,.5)', marginTop: 4 }}>
+                {activeProject.artist} · {activeProject.genre} ·{' '}
+                <span style={{ color: activeProject.status === 'Draft' ? '#ffcf66' : '#57f09c', fontWeight: 700 }}>{activeProject.status}</span>
+                {' '}· {Array.isArray(activeProject.files) ? activeProject.files.length : 0} files · {masteredVersions(activeProject).length} masters
+              </div>
+            </div>
+            <div className="actions">
+              <button type="button" className="primary" data-infinity-local-action="true" onClick={() => onOpenProject(activeProject)}>
+                <Music2 size={15} /> Open Studio
+              </button>
+              <button type="button" className="secondary" data-infinity-local-action="true" onClick={() => toggle('projects')}>
+                All projects
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Clickable stat cubes */}
+        <section className="stats">
+          <Stat label="Projects" value={loading ? '…' : stats.total} icon={Music2} active={activeTab === 'projects'} onClick={() => toggle('projects')} action="View all" hint="Click to browse" color="#55e9ff" />
+          <Stat label="Active" value={loading ? '…' : stats.active} icon={RefreshCw} hint="In production" color="#57f09c" />
+          <Stat label="Files" value={loading ? '…' : stats.files} icon={FileAudio} active={activeTab === 'files'} onClick={() => toggle('files')} action={stats.files ? 'Browse files' : 'Upload first track'} hint="Click to view" color="#55e9ff" />
+          <Stat label="Sounds" value={loading ? '…' : stats.sounds} icon={Sparkles} active={activeTab === 'sounds'} onClick={() => toggle('sounds')} action={stats.sounds ? 'Play sounds' : 'Generate sounds'} hint="Click to view" color="#57f09c" />
+          <Stat label="Masters" value={loading ? '…' : stats.masters} icon={Library} active={activeTab === 'masters'} onClick={() => toggle('masters')} action={stats.masters ? 'Download' : 'Start mastering'} hint="Click to view" color="#b78aff" />
+          <Stat label="Releases" value={loading ? '…' : stats.releases} icon={Rocket} active={activeTab === 'releases'} onClick={() => toggle('releases')} action={stats.releases ? 'View packages' : 'Prepare release'} hint="Click to view" color="#ffcf66" />
+        </section>
+
+        {/* Drill-down panel — shown when a stat is clicked */}
+        {activeTab && (
+          <section style={{ ...panel, padding: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div />
+              <button type="button" className="secondary" data-infinity-local-action="true" onClick={() => setActiveTab(null)} style={{ fontSize: 12, padding: '6px 12px' }}>✕ Close</button>
+            </div>
+            <DrillPanel tab={activeTab} projects={projects} onOpenProject={onOpenProject} />
+          </section>
+        )}
+
+        {/* Projects section */}
+        <section style={{ ...panel, padding: 22 }}>
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Projects</p>
+              <h2>Private song sessions</h2>
+              <p className="muted wide">{cloudMode ? 'Saved to Supabase with private Row Level Security.' : 'Stored locally in this browser.'}</p>
+            </div>
+            <button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create project</button>
+          </div>
+          {projects.length ? (
+            <div className="three">
+              {projects.map((project) => <ProjectCard key={project.id} project={project} onOpen={onOpenProject} onDelete={onDeleteProject} />)}
+            </div>
+          ) : (
+            <div className="card" style={{ boxShadow: 'none', textAlign: 'center' }}>
+              <FolderPlus size={34} color="#55e9ff" />
+              <h3>{loading ? 'Loading projects…' : 'No private project yet'}</h3>
+              <p className="muted">Create your first project to start the Infinity song cycle.</p>
+              <button type="button" className="primary" onClick={onCreate}><Plus size={16} /> Create first project</button>
+            </div>
+          )}
+        </section>
+
+        {activeProject && <ProjectLibraryPanel project={activeProject} />}
+      </div>
+    </main>
+  );
 }
 
 export default function AuthDashboardV122({ children }) {
