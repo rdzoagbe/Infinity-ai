@@ -502,8 +502,7 @@ export default function AudioMVPV2({ open, onClose }) {
         setEnhancedFileId(mid);
         setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`));
       }
-      setStatus('Mix enhanced. Preview and then master for your platform.');
-      go(4);
+      setStatus('Mix enhanced — listen to the preview below, then hit Next to master.');
     } catch (err) {
       setError(`Mix enhancement failed: ${safeError(err)}`);
     } finally {
@@ -739,11 +738,9 @@ export default function AudioMVPV2({ open, onClose }) {
               </div>
             ))}
           </div>
-          {!cleanJob && (
-            <button className="primary" onClick={runClean} disabled={busy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} /> {busy ? 'Cleaning...' : 'Clean my mix'}
-            </button>
-          )}
+          <button className="primary" onClick={runClean} disabled={busy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={16} /> {busy ? 'Cleaning...' : cleanJob ? 'Re-clean mix' : 'Clean my mix'}
+          </button>
           {cleanedPreviewUrl && (
             <div style={{ ...cardGreen, marginTop: 16 }}>
               <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Mix cleaned — preview:</div>
@@ -813,11 +810,9 @@ export default function AudioMVPV2({ open, onClose }) {
           <StatusBox message={status} error={error} busy={busy || vocalBeatBusy} />
           <NavRow
             onBack={() => go(1)}
-            secondaryLabel="Skip — go to mix"
-            onSecondary={() => go(3)}
-            nextLabel="Next — Mix →"
+            nextLabel={cleanJob ? 'Next — Mix →' : 'Skip to Mix →'}
             onNext={() => go(3)}
-            nextDisabled={!cleanJob || busy}
+            nextDisabled={busy}
           />
         </div>
       );
@@ -1070,7 +1065,7 @@ export default function AudioMVPV2({ open, onClose }) {
           </button>
           <ProgressBar progress={masterProgress} label={masterProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy} />
-          <NavRow onBack={() => go(3)} />
+          <NavRow onBack={() => go(3)} nextLabel="Next → Download" onNext={() => go(5)} nextDisabled={!masterJob || busy} />
         </div>
       );
 
