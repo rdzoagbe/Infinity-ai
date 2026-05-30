@@ -1,15 +1,16 @@
 from pathlib import Path
 import json
 import shutil
+import threading
 import aiofiles
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs
 from .config import get_settings
 from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest
-from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, load_store, make_id, save_store
+from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress
 
 settings = get_settings()
 app = FastAPI(title="Infinity AI Audio Backend", version="10.0.0", description="FastAPI backend for Infinity AI music production.")
@@ -107,44 +108,59 @@ def mix_audio(payload: ProcessRequest):
     return complete_job(job, result, "Infinity v10 mix plan ready")
 
 @app.post("/api/v1/audio/master")
-def master_audio(payload: ProcessRequest):
+def master_audio(payload: ProcessRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
-    input_path = Path(file_data["stored_path"])
-    output_dir = Path(file_data["workspace"]) / "renders"
-    job = create_job(JobType.master, message="v10 mastering started")
-    render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq)
-    result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
-    if render.get("status") == "completed":
-        result["downloads"] = {
-            "original": f"/api/v1/files/{payload.file_id}/download/original",
-            "master_preview": f"/api/v1/files/{payload.file_id}/download/master-preview",
-            "master_wav": f"/api/v1/files/{payload.file_id}/download/master-wav",
-            "master_mp3": f"/api/v1/files/{payload.file_id}/download/master-mp3",
-        }
-    return complete_job(job, result, "Infinity v10 mastering complete" if render.get("status") == "completed" else "Mastering skipped or failed")
+    job = create_job(JobType.master, message="Mastering queued")
+    background_tasks.add_task(_run_master, job.job_id, file_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "Mastering started"}
+
+def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
+    try:
+        update_job_progress(job_id, 10, "Loading audio file…")
+        input_path = Path(file_data["stored_path"])
+        output_dir = Path(file_data["workspace"]) / "renders"
+        update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ…")
+        render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq)
+        update_job_progress(job_id, 90, "Encoding WAV + MP3…")
+        result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
+        if render.get("status") == "completed":
+            result["downloads"] = {
+                "original": f"/api/v1/files/{payload.file_id}/download/original",
+                "master_preview": f"/api/v1/files/{payload.file_id}/download/master-preview",
+                "master_wav": f"/api/v1/files/{payload.file_id}/download/master-wav",
+                "master_mp3": f"/api/v1/files/{payload.file_id}/download/master-mp3",
+            }
+        msg = "Mastering complete" if render.get("status") == "completed" else f"Mastering failed: {render.get('reason', render.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 @app.post("/api/v1/audio/style-preview")
-def style_preview(payload: StylePreviewRequest):
+def style_preview(payload: StylePreviewRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
-    workspace = Path(file_data["workspace"])
-    # Prefer cleaned or enhanced file if available in the workspace
-    enhanced = workspace / "renders" / "enhanced.wav"
-    cleaned = workspace / "renders" / "mix-cleaned.wav"
-    if enhanced.exists():
-        input_path = enhanced
-    elif cleaned.exists():
-        input_path = cleaned
-    else:
-        input_path = Path(file_data["stored_path"])
-    output_dir = workspace / "renders"
-    job = create_job(JobType.master, message="Style preview started")
-    result_data = render_style_preview_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.warmth)
-    downloads = {}
-    if result_data.get("status") == "completed":
-        downloads["style_preview"] = f"/api/v1/files/{payload.file_id}/download/style-preview"
-    result = {"file_id": payload.file_id, "mode": payload.mode, "preview": result_data, "downloads": downloads}
-    msg = "Style preview ready" if result_data.get("status") == "completed" else f"Style preview failed: {result_data.get('reason', result_data.get('stderr', ''))}"
-    return complete_job(job, result, msg)
+    job = create_job(JobType.master, message="Style preview queued")
+    background_tasks.add_task(_run_style_preview, job.job_id, file_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "Style preview started"}
+
+def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewRequest):
+    try:
+        update_job_progress(job_id, 15, "Loading audio…")
+        workspace = Path(file_data["workspace"])
+        enhanced = workspace / "renders" / "enhanced.wav"
+        cleaned = workspace / "renders" / "mix-cleaned.wav"
+        input_path = enhanced if enhanced.exists() else (cleaned if cleaned.exists() else Path(file_data["stored_path"]))
+        output_dir = workspace / "renders"
+        update_job_progress(job_id, 40, f"Applying {payload.mode} EQ…")
+        result_data = render_style_preview_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.warmth)
+        update_job_progress(job_id, 90, "Finalizing preview…")
+        downloads = {}
+        if result_data.get("status") == "completed":
+            downloads["style_preview"] = f"/api/v1/files/{payload.file_id}/download/style-preview"
+        result = {"file_id": payload.file_id, "mode": payload.mode, "preview": result_data, "downloads": downloads}
+        msg = "Style preview ready" if result_data.get("status") == "completed" else f"Style preview failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 
 @app.post("/api/v1/audio/separate-stems")
@@ -243,62 +259,76 @@ def download_file(file_id: str, asset_type: str):
     return FileResponse(path, media_type=media_type, filename=path.name)
 
 @app.post("/api/v1/audio/clean-mix")
-def clean_mix(payload: AnalyzeRequest):
+def clean_mix(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
-    input_path = Path(file_data["stored_path"])
-    output_dir = Path(file_data["workspace"]) / "renders"
-    job = create_job(JobType.clean_vocals, message="Mix cleaning started")
-    result_data = clean_full_mix_with_ffmpeg(input_path, output_dir)
-    downloads = {}
-    if result_data.get("status") == "completed":
-        downloads["cleaned_wav"] = f"/api/v1/files/{payload.file_id}/download/mix-cleaned-wav"
-        if result_data.get("mp3_exists"):
-            downloads["cleaned_mp3"] = f"/api/v1/files/{payload.file_id}/download/mix-cleaned-mp3"
-    result = {"file_id": payload.file_id, "clean": result_data, "downloads": downloads}
-    msg = "Mix cleaning complete" if result_data.get("status") == "completed" else f"Mix cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
-    return complete_job(job, result, msg)
+    job = create_job(JobType.clean_vocals, message="Mix cleaning queued")
+    background_tasks.add_task(_run_clean_mix, job.job_id, file_data)
+    return {"job_id": job.job_id, "status": "processing", "message": "Mix cleaning started"}
+
+def _run_clean_mix(job_id: str, file_data: dict):
+    try:
+        update_job_progress(job_id, 10, "Loading audio file…")
+        input_path = Path(file_data["stored_path"])
+        output_dir = Path(file_data["workspace"]) / "renders"
+        update_job_progress(job_id, 30, "Noise reduction + gate…")
+        result_data = clean_full_mix_with_ffmpeg(input_path, output_dir)
+        update_job_progress(job_id, 85, "Normalizing levels…")
+        downloads = {}
+        if result_data.get("status") == "completed":
+            downloads["cleaned_wav"] = f"/api/v1/files/{file_data['file_id']}/download/mix-cleaned-wav"
+            if result_data.get("mp3_exists"):
+                downloads["cleaned_mp3"] = f"/api/v1/files/{file_data['file_id']}/download/mix-cleaned-mp3"
+        result = {"file_id": file_data["file_id"], "clean": result_data, "downloads": downloads}
+        msg = "Mix cleaning complete" if result_data.get("status") == "completed" else f"Mix cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 
 @app.post("/api/v1/audio/enhance-mix")
-def enhance_mix(payload: EnhanceMixRequest):
+def enhance_mix(payload: EnhanceMixRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
-    cleaned_path = Path(file_data["workspace"]) / "renders" / "mix-cleaned.wav"
-    input_path = cleaned_path if cleaned_path.exists() else Path(file_data["stored_path"])
-    output_dir = Path(file_data["workspace"]) / "renders"
-    job = create_job(JobType.mix, message="Mix enhancement started")
-    result_data = enhance_mix_with_ffmpeg(input_path, output_dir, payload.presence_boost, payload.reverb_amount, payload.stereo_width, payload.bus_compress)
+    job = create_job(JobType.mix, message="Mix enhancement queued")
+    background_tasks.add_task(_run_enhance_mix, job.job_id, file_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "Mix enhancement started"}
 
-    enhanced_file_id = None
-    if result_data.get("status") == "completed":
-        enhanced_wav_path = Path(result_data["wav"])
-        enhanced_file_id = make_id("file")
-        enhanced_workspace = file_workspace(enhanced_file_id)
-        dest = enhanced_workspace / "original" / "enhanced.wav"
-        shutil.copy2(enhanced_wav_path, dest)
-        FILES[enhanced_file_id] = {
-            "file_id": enhanced_file_id, "filename": "enhanced.wav",
-            "content_type": "audio/wav", "size_bytes": dest.stat().st_size,
-            "stored_path": str(dest), "workspace": str(enhanced_workspace),
-            "metadata": read_basic_audio_metadata(dest),
-            "parent_file_id": payload.file_id,
-            "downloads": {"original": f"/api/v1/files/{enhanced_file_id}/download/original"},
-        }
-        save_store()
-
-    downloads = {}
-    if result_data.get("status") == "completed":
-        downloads["enhanced_wav"] = f"/api/v1/files/{payload.file_id}/download/enhanced-wav"
-        if result_data.get("mp3_exists"):
-            downloads["enhanced_mp3"] = f"/api/v1/files/{payload.file_id}/download/enhanced-mp3"
-        if enhanced_file_id:
-            downloads["enhanced_original"] = f"/api/v1/files/{enhanced_file_id}/download/original"
-
-    result = {
-        "file_id": payload.file_id, "enhanced_file_id": enhanced_file_id,
-        "enhance": result_data, "downloads": downloads,
-    }
-    msg = "Mix enhancement complete" if result_data.get("status") == "completed" else f"Mix enhancement failed: {result_data.get('reason', result_data.get('stderr', ''))}"
-    return complete_job(job, result, msg)
+def _run_enhance_mix(job_id: str, file_data: dict, payload: EnhanceMixRequest):
+    try:
+        update_job_progress(job_id, 10, "Loading audio…")
+        cleaned_path = Path(file_data["workspace"]) / "renders" / "mix-cleaned.wav"
+        input_path = cleaned_path if cleaned_path.exists() else Path(file_data["stored_path"])
+        output_dir = Path(file_data["workspace"]) / "renders"
+        update_job_progress(job_id, 30, "Applying presence + stereo…")
+        result_data = enhance_mix_with_ffmpeg(input_path, output_dir, payload.presence_boost, payload.reverb_amount, payload.stereo_width, payload.bus_compress)
+        update_job_progress(job_id, 80, "Bus compression + finalizing…")
+        enhanced_file_id = None
+        if result_data.get("status") == "completed":
+            enhanced_wav_path = Path(result_data["wav"])
+            enhanced_file_id = make_id("file")
+            enhanced_workspace = file_workspace(enhanced_file_id)
+            dest = enhanced_workspace / "original" / "enhanced.wav"
+            shutil.copy2(enhanced_wav_path, dest)
+            FILES[enhanced_file_id] = {
+                "file_id": enhanced_file_id, "filename": "enhanced.wav",
+                "content_type": "audio/wav", "size_bytes": dest.stat().st_size,
+                "stored_path": str(dest), "workspace": str(enhanced_workspace),
+                "metadata": read_basic_audio_metadata(dest),
+                "parent_file_id": payload.file_id,
+                "downloads": {"original": f"/api/v1/files/{enhanced_file_id}/download/original"},
+            }
+            save_store()
+        downloads = {}
+        if result_data.get("status") == "completed":
+            downloads["enhanced_wav"] = f"/api/v1/files/{payload.file_id}/download/enhanced-wav"
+            if result_data.get("mp3_exists"):
+                downloads["enhanced_mp3"] = f"/api/v1/files/{payload.file_id}/download/enhanced-mp3"
+            if enhanced_file_id:
+                downloads["enhanced_original"] = f"/api/v1/files/{enhanced_file_id}/download/original"
+        result = {"file_id": payload.file_id, "enhanced_file_id": enhanced_file_id, "enhance": result_data, "downloads": downloads}
+        msg = "Mix enhancement complete" if result_data.get("status") == "completed" else f"Mix enhancement failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 
 @app.post("/api/v1/vocal/clean")
@@ -319,68 +349,63 @@ def clean_vocals(payload: CleanVocalsRequest):
 
 
 @app.post("/api/v1/audio/mix-vocal-beat")
-def mix_vocal_beat(payload: MixVocalBeatRequest):
+def mix_vocal_beat(payload: MixVocalBeatRequest, background_tasks: BackgroundTasks):
     vocal_data = get_file_or_404(payload.vocal_file_id)
-    beat_data = get_file_or_404(payload.beat_file_id)
+    get_file_or_404(payload.beat_file_id)
+    job = create_job(JobType.mix_vocal_beat, message="Vocal+beat mix queued")
+    background_tasks.add_task(_run_vocal_beat_mix, job.job_id, vocal_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "Mixing vocals with beat"}
 
-    vocal_path = Path(vocal_data["stored_path"])
-    beat_path = Path(beat_data["stored_path"])
-
-    cleaned_vocal = Path(vocal_data["workspace"]) / "renders" / "vocals-cleaned.wav"
-    if cleaned_vocal.exists():
-        vocal_path = cleaned_vocal
-
-    output_dir = Path(vocal_data["workspace"]) / "renders"
-    job = create_job(JobType.mix_vocal_beat, message="Mixing vocals with beat")
-    mix_result = mix_vocal_beat_with_ffmpeg(
-        vocal_path, beat_path, output_dir,
-        payload.vocal_gain, payload.beat_gain,
-        payload.vocal_presence_boost, payload.beat_stereo_width, payload.bus_compress,
-        payload.reverb_amount,
-    )
-
-    mixed_file_id = None
-    if mix_result.get("status") == "completed":
-        mixed_wav_path = Path(mix_result["wav"])
-        mixed_file_id = make_id("file")
-        mixed_workspace = file_workspace(mixed_file_id)
-        dest = mixed_workspace / "original" / "mixed.wav"
-        shutil.copy2(mixed_wav_path, dest)
-        mixed_metadata = read_basic_audio_metadata(dest)
-        FILES[mixed_file_id] = {
-            "file_id": mixed_file_id,
-            "filename": "mixed.wav",
-            "content_type": "audio/wav",
-            "size_bytes": dest.stat().st_size,
-            "stored_path": str(dest),
-            "workspace": str(mixed_workspace),
-            "metadata": mixed_metadata,
-            "parent_vocal_id": payload.vocal_file_id,
-            "parent_beat_id": payload.beat_file_id,
-            "downloads": {"original": f"/api/v1/files/{mixed_file_id}/download/original"},
+def _run_vocal_beat_mix(job_id: str, vocal_data: dict, payload: MixVocalBeatRequest):
+    try:
+        update_job_progress(job_id, 10, "Loading vocal + beat…")
+        beat_data = FILES.get(payload.beat_file_id, {})
+        vocal_path = Path(vocal_data["stored_path"])
+        beat_path = Path(beat_data["stored_path"])
+        cleaned_vocal = Path(vocal_data["workspace"]) / "renders" / "vocals-cleaned.wav"
+        if cleaned_vocal.exists():
+            vocal_path = cleaned_vocal
+        output_dir = Path(vocal_data["workspace"]) / "renders"
+        update_job_progress(job_id, 35, "Applying vocal presence + EQ…")
+        mix_result = mix_vocal_beat_with_ffmpeg(
+            vocal_path, beat_path, output_dir,
+            payload.vocal_gain, payload.beat_gain,
+            payload.vocal_presence_boost, payload.beat_stereo_width, payload.bus_compress,
+            payload.reverb_amount,
+        )
+        update_job_progress(job_id, 80, "Bus compression + finalizing…")
+        mixed_file_id = None
+        if mix_result.get("status") == "completed":
+            mixed_wav_path = Path(mix_result["wav"])
+            mixed_file_id = make_id("file")
+            mixed_workspace = file_workspace(mixed_file_id)
+            dest = mixed_workspace / "original" / "mixed.wav"
+            shutil.copy2(mixed_wav_path, dest)
+            FILES[mixed_file_id] = {
+                "file_id": mixed_file_id, "filename": "mixed.wav",
+                "content_type": "audio/wav", "size_bytes": dest.stat().st_size,
+                "stored_path": str(dest), "workspace": str(mixed_workspace),
+                "metadata": read_basic_audio_metadata(dest),
+                "parent_vocal_id": payload.vocal_file_id,
+                "parent_beat_id": payload.beat_file_id,
+                "downloads": {"original": f"/api/v1/files/{mixed_file_id}/download/original"},
+            }
+            save_store()
+        downloads = {}
+        if mix_result.get("status") == "completed":
+            downloads["mixed_wav"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-wav"
+            if mix_result.get("mp3_exists"):
+                downloads["mixed_mp3"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-mp3"
+            if mixed_file_id:
+                downloads["mixed_original"] = f"/api/v1/files/{mixed_file_id}/download/original"
+        result = {
+            "vocal_file_id": payload.vocal_file_id, "beat_file_id": payload.beat_file_id,
+            "mixed_file_id": mixed_file_id, "mix": mix_result, "downloads": downloads,
         }
-        save_store()
-
-    downloads = {}
-    if mix_result.get("status") == "completed":
-        downloads["mixed_wav"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-wav"
-        if mix_result.get("mp3_exists"):
-            downloads["mixed_mp3"] = f"/api/v1/files/{payload.vocal_file_id}/download/mixed-mp3"
-        if mixed_file_id:
-            downloads["mixed_original"] = f"/api/v1/files/{mixed_file_id}/download/original"
-
-    result = {
-        "vocal_file_id": payload.vocal_file_id,
-        "beat_file_id": payload.beat_file_id,
-        "mixed_file_id": mixed_file_id,
-        "vocal_gain": payload.vocal_gain,
-        "beat_gain": payload.beat_gain,
-        "used_cleaned_vocal": cleaned_vocal.exists(),
-        "mix": mix_result,
-        "downloads": downloads,
-    }
-    msg = "Mix complete" if mix_result.get("status") == "completed" else f"Mix failed: {mix_result.get('reason', mix_result.get('stderr', ''))}"
-    return complete_job(job, result, msg)
+        msg = "Mix complete" if mix_result.get("status") == "completed" else f"Mix failed: {mix_result.get('reason', mix_result.get('stderr', ''))}"
+        complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
 
 
 @app.get("/api/v1/jobs/{job_id}")

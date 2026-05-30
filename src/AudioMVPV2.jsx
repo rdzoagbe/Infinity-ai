@@ -9,6 +9,7 @@ import {
   enhanceMixOnBackend,
   masterAudioOnBackend,
   mixVocalBeatOnBackend,
+  pollUntilComplete,
   previewStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
@@ -199,7 +200,22 @@ function SpectrumAnalyzer({ src, color = '#b78aff' }) {
   return <canvas ref={canvasRef} style={{ width: '100%', height: 72, borderRadius: 8, display: 'block', background: 'rgba(255,255,255,.03)', marginBottom: 8 }} />;
 }
 
-const overlay = { position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,.74)', overflowY: 'auto', padding: '12px 8px' };
+function ProgressBar({ progress, label, color = '#55e9ff' }) {
+  if (progress == null) return null;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: 13 }}>
+        <span style={{ color: 'rgba(245,248,255,.72)', lineHeight: 1.4 }}>{label || 'Processing…'}</span>
+        <b style={{ color, flexShrink: 0, marginLeft: 10 }}>{progress}%</b>
+      </div>
+      <div style={{ height: 5, background: 'rgba(255,255,255,.07)', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg,${color}aa,${color})`, borderRadius: 99, transition: 'width 0.4s ease-out' }} />
+      </div>
+    </div>
+  );
+}
+
+const overlay = { position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(6,8,18,.93)', overflowY: 'auto', padding: '12px 8px' };
 const card = { border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', borderRadius: 18, padding: 18 };
 const cardGreen = { ...card, border: '1px solid rgba(87,240,156,.28)', background: 'rgba(87,240,156,.06)' };
 
@@ -217,22 +233,19 @@ function fmtDate(iso) {
   try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 }
 
-function StepBar({ current }) {
+function StepBar({ current, isMobile }) {
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'center', margin: '18px 0 26px', flexWrap: 'wrap' }}>
-      {STEPS.map((s, index) => {
+    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)' }}>
+      {STEPS.map((s) => {
         const done = s.id < current;
         const active = s.id === current;
-        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.28)';
+        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.3)';
         return (
-          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${color}55`, background: `${color}14`, borderRadius: 999, padding: '6px 12px', fontWeight: 800, fontSize: 12, color }}>
-              {done
-                ? <CheckCircle2 size={13} />
-                : <span style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${color}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>{s.id}</span>}
-              {s.label}
+          <div key={s.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: isMobile ? '10px 4px' : '13px 8px', borderBottom: active ? '2px solid #55e9ff' : '2px solid transparent', background: active ? 'rgba(85,233,255,.06)' : 'transparent', transition: 'background .2s' }}>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${color}`, background: done ? '#57f09c22' : active ? '#55e9ff22' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color }}>
+              {done ? <CheckCircle2 size={11} /> : s.id}
             </div>
-            {index < STEPS.length - 1 && <ChevronRight size={13} color="rgba(245,248,255,.2)" />}
+            {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: 0.3 }}>{s.label}</span>}
           </div>
         );
       })}
@@ -316,6 +329,18 @@ export default function AudioMVPV2({ open, onClose }) {
 
   // mix templates (learn from past masters)
   const [templates, setTemplates] = useState(() => loadTemplates());
+
+  // real-time job progress
+  const [cleanProgress, setCleanProgress] = useState(null);
+  const [cleanProgressMsg, setCleanProgressMsg] = useState('');
+  const [enhanceProgress, setEnhanceProgress] = useState(null);
+  const [enhanceProgressMsg, setEnhanceProgressMsg] = useState('');
+  const [masterProgress, setMasterProgress] = useState(null);
+  const [masterProgressMsg, setMasterProgressMsg] = useState('');
+  const [styleProgress, setStyleProgress] = useState(null);
+  const [styleProgressMsg, setStyleProgressMsg] = useState('');
+  const [vocalBeatProgress, setVocalBeatProgress] = useState(null);
+  const [vocalBeatProgressMsg, setVocalBeatProgressMsg] = useState('');
 
   const [masterJob, setMasterJob] = useState(null);
   const [masterCacheBust, setMasterCacheBust] = useState(0);
@@ -410,10 +435,15 @@ export default function AudioMVPV2({ open, onClose }) {
 
   const runVocalBeatMix = async () => {
     if (!songBackend?.file_id || !beatFileId) return;
-    setVocalBeatBusy(true); setError('');
+    setVocalBeatBusy(true); setError(''); setVocalBeatProgress(0); setVocalBeatProgressMsg('Starting…');
     setStatus('Mixing vocals with beat — applying vocal clean, EQ, stereo, compression…');
     try {
-      const job = await mixVocalBeatOnBackend(songBackend.file_id, beatFileId);
+      const init = await mixVocalBeatOnBackend(songBackend.file_id, beatFileId);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) {
+        job = await pollUntilComplete(jobId, (p, msg) => { setVocalBeatProgress(p); setVocalBeatProgressMsg(msg); });
+      }
       const mid = job?.result?.mixed_file_id;
       if (mid) {
         setEnhancedFileId(mid);
@@ -423,33 +453,44 @@ export default function AudioMVPV2({ open, onClose }) {
     } catch (err) {
       setError(`Vocal/beat mix failed: ${safeError(err)}`);
     } finally {
-      setVocalBeatBusy(false);
+      setVocalBeatBusy(false); setVocalBeatProgress(null);
     }
   };
 
   const runClean = async () => {
     if (!songBackend?.file_id) return;
-    setBusy(true); setError('');
-    setStatus('Cleaning mix — noise reduction, de-essing, normalizing levels...');
+    setBusy(true); setError(''); setCleanProgress(0); setCleanProgressMsg('Starting…');
     try {
-      const job = await cleanFullMixOnBackend(songBackend.file_id);
-      setCleanJob(job);
-      const preview = job?.result?.downloads?.cleaned_mp3 || job?.result?.downloads?.cleaned_wav;
-      if (preview) setCleanedPreviewUrl(backendUrl(preview));
+      const init = await cleanFullMixOnBackend(songBackend.file_id);
+      const jobId = init?.job_id;
+      if (jobId) {
+        const done = await pollUntilComplete(jobId, (p, msg) => { setCleanProgress(p); setCleanProgressMsg(msg); });
+        setCleanJob(done);
+        const preview = done?.result?.downloads?.cleaned_mp3 || done?.result?.downloads?.cleaned_wav;
+        if (preview) setCleanedPreviewUrl(backendUrl(preview));
+      } else {
+        setCleanJob(init);
+        const preview = init?.result?.downloads?.cleaned_mp3 || init?.result?.downloads?.cleaned_wav;
+        if (preview) setCleanedPreviewUrl(backendUrl(preview));
+      }
       setStatus('Clean complete. Preview the result, then continue to mix.');
     } catch (err) {
       setError(`Cleaning failed: ${safeError(err)}`);
     } finally {
-      setBusy(false);
+      setBusy(false); setCleanProgress(null);
     }
   };
 
   const runEnhance = async () => {
     if (!songBackend?.file_id) return;
-    setBusy(true); setError('');
-    setStatus('Applying mix enhancements — EQ, room depth, stereo, compression...');
+    setBusy(true); setError(''); setEnhanceProgress(0); setEnhanceProgressMsg('Starting…');
     try {
-      const job = await enhanceMixOnBackend(songBackend.file_id, presenceBoost, reverbAmount, stereoWidth, busCompress);
+      const init = await enhanceMixOnBackend(songBackend.file_id, presenceBoost, reverbAmount, stereoWidth, busCompress);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) {
+        job = await pollUntilComplete(jobId, (p, msg) => { setEnhanceProgress(p); setEnhanceProgressMsg(msg); });
+      }
       setEnhanceJob(job);
       const mid = job?.result?.enhanced_file_id;
       if (mid) {
@@ -461,24 +502,28 @@ export default function AudioMVPV2({ open, onClose }) {
     } catch (err) {
       setError(`Mix enhancement failed: ${safeError(err)}`);
     } finally {
-      setBusy(false);
+      setBusy(false); setEnhanceProgress(null);
     }
   };
 
   const runStylePreview = async () => {
     const targetId = enhancedFileId || songBackend?.file_id;
     if (!targetId) return;
-    setStylePreviewBusy(true); setError('');
-    setStatus(`Generating ${mode} style preview — 30 seconds…`);
+    setStylePreviewBusy(true); setError(''); setStyleProgress(0); setStyleProgressMsg('Starting…');
     try {
-      const job = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const init = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) {
+        job = await pollUntilComplete(jobId, (p, msg) => { setStyleProgress(p); setStyleProgressMsg(msg); });
+      }
       const previewPath = job?.result?.downloads?.style_preview;
       if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
       setStatus('Style preview ready. Switch styles to compare, then proceed to master.');
     } catch (err) {
       setError(`Style preview failed: ${safeError(err)}`);
     } finally {
-      setStylePreviewBusy(false);
+      setStylePreviewBusy(false); setStyleProgress(null);
     }
   };
 
@@ -487,18 +532,23 @@ export default function AudioMVPV2({ open, onClose }) {
     if (!targetId) return;
     const s = overrideStrength ?? strength;
     const platformLabel = PLATFORMS.find(p => p.id === platform)?.label || platform;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setMasterProgress(0); setMasterProgressMsg('Queuing master…');
     setStatus(`Mastering for ${platformLabel} · ${mode}${airBoost ? ' + air boost' : ''}${overrideStrength ? ` · ${s}% intensity` : ''}…`);
     try {
-      const job = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq);
+      const init = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) {
+        job = await pollUntilComplete(jobId, (p, msg) => { setMasterProgress(p); setMasterProgressMsg(msg); });
+      }
       setMasterJob(job);
-      const bust = Date.now();
-      setMasterCacheBust(bust);
+      const bust2 = Date.now();
+      setMasterCacheBust(bust2);
       setStatus('Mastering complete. Your files are ready to download.');
       // save to history
       const downloads = job?.result?.downloads || {};
       const entry = {
-        id: bust,
+        id: bust2,
         date: new Date().toISOString(),
         filename: projectName || songFile?.name || 'unknown',
         platform,
@@ -519,7 +569,7 @@ export default function AudioMVPV2({ open, onClose }) {
       const wavUrl = dl.master_wav ? backendUrl(dl.master_wav) : '';
       window.dispatchEvent(new CustomEvent('infinity:project-sound', {
         detail: {
-          id: `master_${bust}`,
+          id: `master_${bust2}`,
           type: 'master',
           source: 'infinity-studio',
           name: `Master — ${projectName || songFile?.name || 'track'}`,
@@ -541,7 +591,7 @@ export default function AudioMVPV2({ open, onClose }) {
     } catch (err) {
       setError(`Mastering failed: ${safeError(err)}`);
     } finally {
-      setBusy(false);
+      setBusy(false); setMasterProgress(null);
     }
   };
 
@@ -570,14 +620,16 @@ export default function AudioMVPV2({ open, onClose }) {
   const reverbLabel = reverbAmount < 0.06 ? 'Dry' : reverbAmount < 0.35 ? 'Room' : reverbAmount < 0.65 ? 'Studio' : reverbAmount < 0.85 ? 'Hall' : 'Cathedral';
 
   const shell = {
-    maxWidth: 820,
-    margin: '16px auto',
-    borderRadius: isMobile ? 20 : 28,
-    padding: isMobile ? 16 : 26,
+    maxWidth: isMobile ? '100%' : 960,
+    margin: isMobile ? '0' : '12px auto',
+    borderRadius: isMobile ? 0 : 24,
+    padding: 0,
     color: '#f5f8ff',
-    background: 'rgba(17,20,33,.97)',
-    border: '1px solid rgba(255,255,255,.08)',
-    boxShadow: '0 22px 80px rgba(0,0,0,.45),0 0 48px rgba(85,233,255,.10)',
+    background: 'rgba(12,14,26,.99)',
+    border: isMobile ? 'none' : '1px solid rgba(255,255,255,.07)',
+    borderTop: '2px solid rgba(85,233,255,.45)',
+    boxShadow: '0 28px 100px rgba(0,0,0,.6),0 0 64px rgba(85,233,255,.08)',
+    minHeight: isMobile ? '100dvh' : undefined,
   };
 
   const renderStep = () => {
@@ -731,6 +783,8 @@ export default function AudioMVPV2({ open, onClose }) {
             )}
           </div>
 
+          <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />
+          <ProgressBar progress={vocalBeatProgress} label={vocalBeatProgressMsg} color="#ffcf66" />
           <StatusBox message={status} error={error} busy={busy || vocalBeatBusy} />
           <NavRow
             onBack={() => go(1)}
@@ -869,6 +923,8 @@ export default function AudioMVPV2({ open, onClose }) {
             )}
           </div>
 
+          <ProgressBar progress={enhanceProgress} label={enhanceProgressMsg} color="#55e9ff" />
+          <ProgressBar progress={styleProgress} label={styleProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
           <NavRow onBack={() => go(2)} nextLabel="Next — Master →" onNext={() => go(4)} nextDisabled={busy || stylePreviewBusy} />
         </div>
@@ -985,8 +1041,9 @@ export default function AudioMVPV2({ open, onClose }) {
             </label>
           </div>
           <button className="primary" onClick={() => runMaster()} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 8, width: isMobile ? '100%' : 'auto', justifyContent: 'center' }}>
-            <Sparkles size={16} /> {busy ? 'Mastering...' : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
+            <Sparkles size={16} /> {busy ? 'Mastering…' : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
           </button>
+          <ProgressBar progress={masterProgress} label={masterProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy} />
           <NavRow onBack={() => go(3)} />
         </div>
@@ -1169,21 +1226,27 @@ export default function AudioMVPV2({ open, onClose }) {
   return (
     <div style={overlay}>
       <div style={shell}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 }}>
-          <div>
-            <p className="eyebrow">Infinity Studio</p>
-            <h2 style={{ margin: '4px 0 8px', fontSize: 'clamp(20px,4vw,36px)' }}>Clean · Mix · Master</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: backendOnline ? '#57f09c' : '#ffcf66', display: 'inline-block', flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: 'rgba(245,248,255,.52)' }}>
-                {backendOnline ? `Backend connected · ${API_BASE}` : 'Backend offline — check Railway'}
-              </span>
+        {/* Studio header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '14px 16px 12px' : '18px 28px 14px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: isMobile ? 15 : 18, fontWeight: 900, letterSpacing: -0.3, background: 'linear-gradient(90deg,#55e9ff,#b78aff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Infinity Studio</span>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: backendOnline ? '#57f09c' : '#ffcf66', display: 'inline-block', flexShrink: 0 }} />
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginTop: 2 }}>
+                {backendOnline ? 'Clean · Mix · Master' : 'Backend offline — check Railway'}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', borderRadius: 14, padding: 10, cursor: 'pointer', flexShrink: 0 }}><X size={18} /></button>
+          <button onClick={onClose} style={{ border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', borderRadius: 12, padding: '8px 10px', cursor: 'pointer', flexShrink: 0 }}><X size={17} /></button>
         </div>
-        <StepBar current={step} />
-        {renderStep()}
+        {/* Step tabs */}
+        <StepBar current={step} isMobile={isMobile} />
+        {/* Step content */}
+        <div style={{ padding: isMobile ? '18px 16px' : '24px 28px', maxHeight: isMobile ? undefined : 'calc(100dvh - 180px)', overflowY: 'auto' }}>
+          {renderStep()}
+        </div>
       </div>
     </div>
   );
