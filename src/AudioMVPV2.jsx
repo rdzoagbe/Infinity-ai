@@ -11,6 +11,7 @@ import {
   mixVocalBeatOnBackend,
   pollUntilComplete,
   previewStyleOnBackend,
+  separateStemsOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
@@ -343,6 +344,10 @@ export default function AudioMVPV2({ open, onClose }) {
   const [vocalBeatProgressMsg, setVocalBeatProgressMsg] = useState('');
 
   const [masterJob, setMasterJob] = useState(null);
+  const [stemJob, setStemJob] = useState(null);
+  const [stemBusy, setStemBusy] = useState(false);
+  const [stemProgress, setStemProgress] = useState(null);
+  const [stemProgressMsg, setStemProgressMsg] = useState('');
   const [masterCacheBust, setMasterCacheBust] = useState(0);
   const [abMode, setAbMode] = useState('master'); // 'original' | 'master'
 
@@ -595,6 +600,25 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runStemSeparation = async () => {
+    const targetId = masterJob?.result?.file_id || enhancedFileId || songBackend?.file_id;
+    if (!targetId) return;
+    setStemBusy(true); setStemProgress(0); setStemProgressMsg('Starting…');
+    try {
+      const init = await separateStemsOnBackend(targetId);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) {
+        job = await pollUntilComplete(jobId, (p, msg) => { setStemProgress(p); setStemProgressMsg(msg); });
+      }
+      setStemJob(job);
+    } catch (err) {
+      setError(`Stem separation failed: ${safeError(err)}`);
+    } finally {
+      setStemBusy(false); setStemProgress(null);
+    }
+  };
+
   const resetAll = () => {
     setStep(1);
     setProjectName('');
@@ -602,6 +626,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setCleanJob(null); setCleanedPreviewUrl('');
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
     setMasterJob(null); setMasterCacheBust(0); setAbMode('master'); setError(''); setStatus('');
+    setStemJob(null); setStemBusy(false); setStemProgress(null);
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
     setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
@@ -1125,6 +1150,37 @@ export default function AudioMVPV2({ open, onClose }) {
               </div>
             </div>
           )}
+
+          {/* Stem separation */}
+          <div style={{ ...card, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Separate stems</div>
+            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+              Split your track into <b>Vocals</b> (center channel) + <b>Instrumental</b> (stereo field). FFmpeg-based — fast, no GPU needed.
+            </div>
+            {!stemJob && (
+              <button
+                className="secondary"
+                data-infinity-local-action="true"
+                disabled={stemBusy || !songBackend}
+                onClick={runStemSeparation}
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <Sparkles size={14} /> {stemBusy ? 'Separating…' : 'Separate stems'}
+              </button>
+            )}
+            <ProgressBar progress={stemProgress} label={stemProgressMsg} color="#ffcf66" />
+            {stemJob?.result?.downloads && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                {Object.entries(stemJob.result.downloads).map(([key, url]) => (
+                  <a key={key} href={backendUrl(url)} download className="secondary"
+                    style={{ fontSize: 12, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Download size={12} /> {key.charAt(0).toUpperCase() + key.slice(1)} WAV
+                  </a>
+                ))}
+              </div>
+            )}
+            {stemJob && <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginTop: 8 }}>{stemJob?.result?.note || 'Mid/Side extraction complete.'}</div>}
+          </div>
 
           {/* Download + Share */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
