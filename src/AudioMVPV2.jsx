@@ -18,10 +18,8 @@ import {
 
 const STEPS = [
   { id: 1, label: 'Upload' },
-  { id: 2, label: 'Clean' },
-  { id: 3, label: 'Mix' },
-  { id: 4, label: 'Master' },
-  { id: 5, label: 'Download' },
+  { id: 2, label: 'Shape' },
+  { id: 3, label: 'Master' },
 ];
 
 const PLATFORMS = [
@@ -234,19 +232,26 @@ function fmtDate(iso) {
   try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 }
 
+const STEP_LABELS = { 1: 'Upload', 2: 'Shape your sound', 3: 'Master & Download' };
+
 function StepBar({ current, isMobile }) {
   return (
-    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)' }}>
-      {STEPS.map((s) => {
+    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)', padding: isMobile ? '10px 16px' : '12px 28px', alignItems: 'center', gap: 0 }}>
+      {STEPS.map((s, i) => {
         const done = s.id < current;
         const active = s.id === current;
-        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.3)';
+        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.28)';
         return (
-          <div key={s.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: isMobile ? '10px 4px' : '13px 8px', borderBottom: active ? '2px solid #55e9ff' : '2px solid transparent', background: active ? 'rgba(85,233,255,.06)' : 'transparent', transition: 'background .2s' }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${color}`, background: done ? '#57f09c22' : active ? '#55e9ff22' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color }}>
-              {done ? <CheckCircle2 size={11} /> : s.id}
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${color}`, background: done ? '#57f09c22' : active ? '#55e9ff18' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color, flexShrink: 0 }}>
+                {done ? <CheckCircle2 size={12} /> : s.id}
+              </div>
+              <span style={{ fontSize: isMobile ? 11 : 13, fontWeight: active ? 800 : 500, color, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{s.label}</span>
             </div>
-            {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: 0.3 }}>{s.label}</span>}
+            {i < STEPS.length - 1 && (
+              <div style={{ flex: 1, height: 1, background: done ? '#57f09c44' : 'rgba(255,255,255,.08)', margin: '0 10px' }} />
+            )}
           </div>
         );
       })}
@@ -354,6 +359,9 @@ export default function AudioMVPV2({ open, onClose }) {
   // history
   const [history, setHistory] = useState(() => loadHistory());
 
+  // UI state
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const songUrlRef = useRef('');
 
   useEffect(() => {
@@ -405,7 +413,16 @@ export default function AudioMVPV2({ open, onClose }) {
         const analysis = await analyzeAudioOnBackend(res.file.file_id);
         setAnalysisData(analysis);
       } catch {}
-      setStatus('Song uploaded. Ready to clean.');
+      setStatus('Song uploaded — analysing done.');
+      // Auto-clean in background so it's ready when user previews
+      cleanFullMixOnBackend(res.file.file_id).then(init => {
+        const jobId = init?.job_id;
+        if (!jobId) { setCleanJob(init); return; }
+        setCleanProgress(0); setCleanProgressMsg('Cleaning in background…');
+        pollUntilComplete(jobId, (p, msg) => { setCleanProgress(p); setCleanProgressMsg(msg); })
+          .then(done => { setCleanJob(done); setCleanProgress(null); })
+          .catch(() => { setCleanProgress(null); });
+      }).catch(() => {});
     } catch (err) {
       setError(`Upload failed: ${safeError(err)}`);
     } finally {
@@ -531,6 +548,43 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runShapePreview = async () => {
+    if (!songBackend?.file_id) return;
+    let previewTargetId = enhancedFileId;
+    // Enhance if needed (or if settings changed)
+    if (!previewTargetId) {
+      setBusy(true); setError(''); setEnhanceProgress(0); setEnhanceProgressMsg('Applying mix settings…');
+      try {
+        const init = await enhanceMixOnBackend(songBackend.file_id, presenceBoost, reverbAmount, stereoWidth, busCompress);
+        const jobId = init?.job_id;
+        let job = init;
+        if (jobId) job = await pollUntilComplete(jobId, (p, msg) => { setEnhanceProgress(p); setEnhanceProgressMsg(msg); });
+        setEnhanceJob(job);
+        const mid = job?.result?.enhanced_file_id;
+        if (mid) { previewTargetId = mid; setEnhancedFileId(mid); setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`)); }
+      } catch (err) {
+        setError(`Mix failed: ${safeError(err)}`); setBusy(false); setEnhanceProgress(null); return;
+      }
+      setBusy(false); setEnhanceProgress(null);
+    }
+    // Style preview
+    const targetId = previewTargetId || songBackend.file_id;
+    setStylePreviewBusy(true); setStyleProgress(0); setStyleProgressMsg('Generating style preview…');
+    try {
+      const init = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) job = await pollUntilComplete(jobId, (p, msg) => { setStyleProgress(p); setStyleProgressMsg(msg); });
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus('Preview ready — sounds right? Hit "Master it →"');
+    } catch (err) {
+      setError(`Preview failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false); setStyleProgress(null);
+    }
+  };
+
   const runMaster = async ({ overrideStrength, airBoost = false } = {}) => {
     const targetId = enhancedFileId || songBackend?.file_id;
     if (!targetId) return;
@@ -548,7 +602,6 @@ export default function AudioMVPV2({ open, onClose }) {
       setMasterJob(job);
       const bust2 = Date.now();
       setMasterCacheBust(bust2);
-      setStatus('Mastering complete. Your files are ready to download.');
       // save to history
       const downloads = job?.result?.downloads || {};
       const entry = {
@@ -591,7 +644,7 @@ export default function AudioMVPV2({ open, onClose }) {
           created_at: new Date().toISOString(),
         },
       }));
-      if (step !== 5) go(5);
+      setStatus('Mastering complete. Your files are ready to download.');
     } catch (err) {
       setError(`Mastering failed: ${safeError(err)}`);
     } finally {
@@ -629,6 +682,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
     setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
+    setAdvancedOpen(false);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -659,7 +713,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const renderStep = () => {
     switch (step) {
 
-      case 1: return (
+      case 1: return ( // ─── UPLOAD ───
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Step 1 — Upload your song</h3>
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
@@ -711,11 +765,12 @@ export default function AudioMVPV2({ open, onClose }) {
             />
           </div>
           <StatusBox message={status} error={error} busy={busy} />
-          <NavRow nextLabel="Next — Clean →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
+          {cleanProgress != null && <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />}
+          <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
         </div>
       );
 
-      case 2: return (
+      case 2: return ( // ─── SHAPE YOUR SOUND ───
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Step 2 — Clean your mix</h3>
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
