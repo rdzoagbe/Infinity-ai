@@ -224,6 +224,8 @@ function StudioShell({ children, onBack, project, cloudMode }) {
   return (
     <>
       {children}
+      {/* Dark scrim so the main site doesn't show through */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9993, background: 'rgba(9,11,20,.82)', backdropFilter: 'blur(3px)' }} />
       {/* Top-left nav bar */}
       <div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="secondary" onClick={onBack}>← Dashboard</button>

@@ -772,103 +772,166 @@ export default function AudioMVPV2({ open, onClose }) {
 
       case 2: return ( // ─── SHAPE YOUR SOUND ───
         <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 2 — Clean your mix</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            Remove recording noise, tame harsh frequencies and normalize the level — one click.
+          <h3 style={{ margin: '0 0 6px' }}>Shape your sound</h3>
+          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 20, lineHeight: 1.6 }}>
+            Pick a style, set your vibe, and preview. When it sounds right — master it.
           </p>
-          <div style={card}>
-            <div style={{ fontWeight: 700, marginBottom: 12 }}>Cleaning chain</div>
-            {[
-              'Rumble removal (80 Hz high-pass — removes room boom)',
-              'Gentle top-end rolloff (18 kHz low-pass)',
-              'Strong noise reduction (afftdn −25 dB, 15 dB NR)',
-              'Room reverb gate — cuts echo tails between phrases',
-              'Room resonance cuts at 200 Hz (−3 dB) and 400 Hz (−2 dB)',
-              'De-essing at 7 kHz (−2 dB)',
-              'Gentle mix compression (1.8:1 ratio)',
-              'Loudness normalization (−16 LUFS / −1.5 dBTP)',
-            ].map((item, i) => (
-              <div key={i} style={{ color: 'rgba(245,248,255,.65)', fontSize: 13, padding: '5px 0', borderBottom: i < 7 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
-                → {item}
-              </div>
-            ))}
+
+          {/* Clean status pill */}
+          {cleanJob && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 10, background: 'rgba(87,240,156,.06)', border: '1px solid rgba(87,240,156,.18)', marginBottom: 16 }}>
+              <span style={{ color: '#57f09c', fontWeight: 700, fontSize: 13 }}>✓ Mix cleaned</span>
+              <span style={{ color: 'rgba(245,248,255,.42)', fontSize: 12 }}>— noise and echo removed in the background</span>
+            </div>
+          )}
+          {cleanProgress != null && <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />}
+
+          {/* Style chips */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Pick your sound style</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {MODES.map(m => {
+                const desc = MODE_DESCRIPTIONS[m];
+                const active = mode === m;
+                return (
+                  <button
+                    key={m}
+                    data-infinity-local-action="true"
+                    onClick={() => { setMode(m); setStylePreviewUrl(''); setEnhancedFileId(null); }}
+                    style={{ padding: '9px 18px', borderRadius: 99, fontWeight: 700, fontSize: 13, cursor: 'pointer', border: `1.5px solid ${active ? (desc?.color || '#55e9ff') : 'rgba(255,255,255,.1)'}`, background: active ? `${desc?.color || '#55e9ff'}18` : 'rgba(255,255,255,.03)', color: active ? (desc?.color || '#55e9ff') : 'rgba(245,248,255,.7)', transition: 'all .15s' }}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Style description card */}
+            {(() => {
+              const desc = MODE_DESCRIPTIONS[mode];
+              if (!desc) return null;
+              return (
+                <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 12, background: `${desc.color}0e`, border: `1px solid ${desc.color}28` }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {desc.tags.map(t => <span key={t} style={{ fontSize: 11, fontWeight: 700, color: desc.color, background: `${desc.color}18`, borderRadius: 99, padding: '3px 9px' }}>{t}</span>)}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{desc.detail}</div>
+                </div>
+              );
+            })()}
           </div>
-          <button className="primary" onClick={runClean} disabled={busy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Sparkles size={16} /> {busy ? 'Cleaning...' : cleanJob ? 'Re-clean mix' : 'Clean my mix'}
-          </button>
-          {cleanedPreviewUrl && (
-            <div style={{ ...cardGreen, marginTop: 16 }}>
-              <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Mix cleaned — preview:</div>
-              <Waveform src={cleanedPreviewUrl} color="#57f09c" />
-              <audio controls src={cleanedPreviewUrl} style={{ width: '100%', marginTop: 8 }} />
+
+          {/* Template recall */}
+          {templates[mode] && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,207,102,.08)', border: '1px solid rgba(255,207,102,.28)', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, fontSize: 12, color: 'rgba(245,248,255,.7)', lineHeight: 1.5 }}>
+                <b style={{ color: '#ffcf66' }}>Saved from last time:</b>{' '}
+                {mode} · Intensity {templates[mode].strength}% · Warmth {templates[mode].warmth}%
+              </div>
+              <button data-infinity-local-action="true" className="secondary"
+                style={{ fontSize: 12, padding: '6px 12px', border: '1px solid rgba(255,207,102,.4)', color: '#ffcf66', whiteSpace: 'nowrap' }}
+                onClick={() => { setStrength(templates[mode].strength); setWarmth(templates[mode].warmth); setLowEq(templates[mode].lowEq); setMidEq(templates[mode].midEq); setHighEq(templates[mode].highEq); setStylePreviewUrl(''); }}>
+                Use these →
+              </button>
             </div>
           )}
 
-          {/* Vocals-only: add a beat */}
-          <div style={{ ...card, marginTop: 14 }}>
-            <div
-              data-infinity-local-action="true"
-              onClick={() => setIsVocalOnly(!isVocalOnly)}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', userSelect: 'none' }}
-            >
-              <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${isVocalOnly ? '#ffcf66' : 'rgba(255,255,255,.2)'}`, background: isVocalOnly ? 'rgba(255,207,102,.18)' : 'transparent', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#ffcf66' }}>
-                {isVocalOnly ? '✓' : ''}
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: isVocalOnly ? '#ffcf66' : '#f5f8ff' }}>My upload is vocals only — add a beat</div>
-                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 3, lineHeight: 1.5 }}>Upload a beat below and we'll mix it with your cleaned vocals before mastering.</div>
-              </div>
+          {/* Intensity slider */}
+          <label className="range" style={{ marginBottom: 20 }}>
+            <span>Style intensity <b>{strength}%</b></span>
+            <input type="range" min="0" max="100" value={strength} onChange={e => { setStrength(Number(e.target.value)); setStylePreviewUrl(''); }} />
+          </label>
+
+          {/* Preview player */}
+          {stylePreviewUrl && (
+            <div style={{ ...card, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 6 }}>30s preview — {mode}</div>
+              <audio key={stylePreviewUrl} controls src={stylePreviewUrl} style={{ width: '100%' }} />
+              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginTop: 6 }}>Sounding right? Hit "Master it →" below.</div>
             </div>
-            {isVocalOnly && (
-              <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
-                <label
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, border: '1px dashed rgba(255,207,102,.35)', background: 'rgba(255,207,102,.05)', borderRadius: 14, padding: 20, cursor: vocalBeatBusy ? 'not-allowed' : 'pointer', opacity: vocalBeatBusy ? 0.5 : 1 }}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); if (!vocalBeatBusy && e.dataTransfer.files[0]) handleBeatFile(e.dataTransfer.files[0]); }}
-                >
-                  <input type="file" accept="audio/*,.mp3,.wav,.flac,.m4a" style={{ display: 'none' }} disabled={vocalBeatBusy} onChange={e => { if (e.target.files[0]) handleBeatFile(e.target.files[0]); }} />
-                  <span style={{ fontSize: 22 }}>🥁</span>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#ffcf66' }}>
-                      {beatFile ? beatFile.name : 'Drop your beat here or click to browse'}
-                    </div>
-                    <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 12, marginTop: 3 }}>
-                      {beatFile ? `${formatBytes(beatFile.size)} — beat uploaded` : 'MP3 · WAV · any format'}
-                    </div>
-                  </div>
+          )}
+
+          {/* Preview button */}
+          <button className="primary" data-infinity-local-action="true"
+            disabled={stylePreviewBusy || busy || !songBackend}
+            onClick={runShapePreview}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: 'center', fontSize: 15, padding: '13px 0', marginBottom: 12 }}>
+            <Sparkles size={15} /> {stylePreviewBusy ? `Generating ${mode} preview…` : `Preview my sound in ${mode}`}
+          </button>
+
+          <ProgressBar progress={enhanceProgress ?? styleProgress} label={enhanceProgress != null ? enhanceProgressMsg : styleProgressMsg} color="#b78aff" />
+          <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
+
+          {/* Advanced settings */}
+          <div style={{ marginTop: 8 }}>
+            <button data-infinity-local-action="true" className="secondary"
+              style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+              onClick={() => setAdvancedOpen(v => !v)}>
+              {advancedOpen ? '▲' : '▼'} Advanced settings
+            </button>
+            {advancedOpen && (
+              <div style={{ ...card, marginTop: 10 }}>
+                <label className="range" style={{ marginBottom: 14 }}>
+                  <span>Warmth / Analog saturation <b>{warmth}%</b></span>
+                  <input type="range" min="0" max="100" value={warmth} onChange={e => { setWarmth(Number(e.target.value)); setStylePreviewUrl(''); setEnhancedFileId(null); }} />
                 </label>
-                {beatFileId && (
-                  <button
-                    className="primary"
-                    data-infinity-local-action="true"
-                    disabled={vocalBeatBusy}
-                    onClick={runVocalBeatMix}
-                    style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#ffcf66,#ff9f43)' }}
-                  >
-                    <Sparkles size={15} /> {vocalBeatBusy ? 'Mixing vocals + beat…' : 'Mix vocals + beat'}
-                  </button>
-                )}
-                {enhancedPreviewUrl && isVocalOnly && (
-                  <div style={{ ...cardGreen, marginTop: 14 }}>
-                    <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Vocals + beat mixed — listen:</div>
-                    <Waveform src={enhancedPreviewUrl} color="#ffcf66" />
-                    <audio controls src={enhancedPreviewUrl} style={{ width: '100%', marginTop: 8 }} />
-                    <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginTop: 6 }}>Sounding good? Continue to choose your sound style.</div>
+                <label style={{ display: 'block', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
+                    <span>Reverb / room depth</span>
+                    <b style={{ color: '#b78aff' }}>{reverbLabel} ({Math.round(reverbAmount * 100)}%)</b>
                   </div>
-                )}
+                  <input type="range" min="0" max="100" value={Math.round(reverbAmount * 100)} onChange={e => { setReverbAmount(Number(e.target.value) / 100); setStylePreviewUrl(''); setEnhancedFileId(null); }} style={{ width: '100%' }} />
+                </label>
+                <label style={{ display: 'block', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
+                    <span>Stereo width</span>
+                    <b style={{ color: '#ff4de1' }}>{stereoWidth.toFixed(1)}×</b>
+                  </div>
+                  <input type="range" min="100" max="200" value={Math.round(stereoWidth * 100)} onChange={e => { setStereoWidth(Number(e.target.value) / 100); setStylePreviewUrl(''); setEnhancedFileId(null); }} style={{ width: '100%' }} />
+                </label>
+                {[
+                  { label: 'Presence boost', sub: '+1.5 dB at 3.5 kHz + air shelf — vocals cut through', val: presenceBoost, set: setPresenceBoost, color: '#55e9ff' },
+                  { label: 'Bus compression', sub: 'Glue compressor + true-peak limiter — radio-ready feel', val: busCompress, set: setBusCompress, color: '#57f09c' },
+                ].map(({ label, sub, val, set, color }) => (
+                  <div key={label} data-infinity-local-action="true" onClick={() => { set(!val); setStylePreviewUrl(''); setEnhancedFileId(null); }}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}>
+                    <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${val ? color : 'rgba(255,255,255,.2)'}`, background: val ? `${color}22` : 'transparent', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color }}>
+                      {val ? '✓' : ''}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: val ? color : '#f5f8ff' }}>{label}</div>
+                      <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 3, lineHeight: 1.5 }}>{sub}</div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>Tone balance</div>
+                  {[
+                    { label: 'Low', freq: '<200 Hz', val: lowEq, set: setLowEq, color: '#b78aff' },
+                    { label: 'Mid', freq: '200 Hz–4 kHz', val: midEq, set: setMidEq, color: '#55e9ff' },
+                    { label: 'High', freq: '>4 kHz', val: highEq, set: setHighEq, color: '#57f09c' },
+                  ].map(({ label, freq, val, set, color }) => (
+                    <label key={label} className="range" style={{ marginBottom: 10 }}>
+                      <span>
+                        <b style={{ color }}>{label}</b>
+                        <span style={{ color: 'rgba(245,248,255,.42)', fontSize: 12, marginLeft: 6 }}>{freq}</span>
+                        <b style={{ marginLeft: 8, color: val > 0 ? '#57f09c' : val < 0 ? '#ff6b6b' : 'rgba(245,248,255,.5)' }}>
+                          {val > 0 ? `+${val}` : val} dB
+                        </b>
+                      </span>
+                      <input type="range" min="-6" max="6" step="0.5" value={val} data-infinity-local-action="true"
+                        onChange={e => { set(Number(e.target.value)); setStylePreviewUrl(''); setEnhancedFileId(null); }} />
+                    </label>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '6px 12px' }}
+                      onClick={() => { setLowEq(0); setMidEq(0); setHighEq(0); }}>Reset EQ</button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />
-          <ProgressBar progress={vocalBeatProgress} label={vocalBeatProgressMsg} color="#ffcf66" />
-          <StatusBox message={status} error={error} busy={busy || vocalBeatBusy} />
-          <NavRow
-            onBack={() => go(1)}
-            nextLabel={cleanJob ? 'Next — Mix →' : 'Skip to Mix →'}
-            onNext={() => go(3)}
-            nextDisabled={busy}
-          />
+          <NavRow onBack={() => go(1)} nextLabel="Master it →" onNext={() => go(3)} nextDisabled={busy || stylePreviewBusy} />
         </div>
       );
 
