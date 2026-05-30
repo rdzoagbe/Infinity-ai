@@ -18,10 +18,8 @@ import {
 
 const STEPS = [
   { id: 1, label: 'Upload' },
-  { id: 2, label: 'Clean' },
-  { id: 3, label: 'Mix' },
-  { id: 4, label: 'Master' },
-  { id: 5, label: 'Download' },
+  { id: 2, label: 'Shape' },
+  { id: 3, label: 'Master' },
 ];
 
 const PLATFORMS = [
@@ -234,19 +232,26 @@ function fmtDate(iso) {
   try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 }
 
+const STEP_LABELS = { 1: 'Upload', 2: 'Shape your sound', 3: 'Master & Download' };
+
 function StepBar({ current, isMobile }) {
   return (
-    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)' }}>
-      {STEPS.map((s) => {
+    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)', padding: isMobile ? '10px 16px' : '12px 28px', alignItems: 'center', gap: 0 }}>
+      {STEPS.map((s, i) => {
         const done = s.id < current;
         const active = s.id === current;
-        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.3)';
+        const color = done ? '#57f09c' : active ? '#55e9ff' : 'rgba(245,248,255,.28)';
         return (
-          <div key={s.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: isMobile ? '10px 4px' : '13px 8px', borderBottom: active ? '2px solid #55e9ff' : '2px solid transparent', background: active ? 'rgba(85,233,255,.06)' : 'transparent', transition: 'background .2s' }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${color}`, background: done ? '#57f09c22' : active ? '#55e9ff22' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color }}>
-              {done ? <CheckCircle2 size={11} /> : s.id}
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${color}`, background: done ? '#57f09c22' : active ? '#55e9ff18' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color, flexShrink: 0 }}>
+                {done ? <CheckCircle2 size={12} /> : s.id}
+              </div>
+              <span style={{ fontSize: isMobile ? 11 : 13, fontWeight: active ? 800 : 500, color, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>{s.label}</span>
             </div>
-            {!isMobile && <span style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: 0.3 }}>{s.label}</span>}
+            {i < STEPS.length - 1 && (
+              <div style={{ flex: 1, height: 1, background: done ? '#57f09c44' : 'rgba(255,255,255,.08)', margin: '0 10px' }} />
+            )}
           </div>
         );
       })}
@@ -354,6 +359,9 @@ export default function AudioMVPV2({ open, onClose }) {
   // history
   const [history, setHistory] = useState(() => loadHistory());
 
+  // UI state
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const songUrlRef = useRef('');
 
   useEffect(() => {
@@ -405,7 +413,16 @@ export default function AudioMVPV2({ open, onClose }) {
         const analysis = await analyzeAudioOnBackend(res.file.file_id);
         setAnalysisData(analysis);
       } catch {}
-      setStatus('Song uploaded. Ready to clean.');
+      setStatus('Song uploaded — analysing done.');
+      // Auto-clean in background so it's ready when user previews
+      cleanFullMixOnBackend(res.file.file_id).then(init => {
+        const jobId = init?.job_id;
+        if (!jobId) { setCleanJob(init); return; }
+        setCleanProgress(0); setCleanProgressMsg('Cleaning in background…');
+        pollUntilComplete(jobId, (p, msg) => { setCleanProgress(p); setCleanProgressMsg(msg); })
+          .then(done => { setCleanJob(done); setCleanProgress(null); })
+          .catch(() => { setCleanProgress(null); });
+      }).catch(() => {});
     } catch (err) {
       setError(`Upload failed: ${safeError(err)}`);
     } finally {
@@ -531,6 +548,43 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runShapePreview = async () => {
+    if (!songBackend?.file_id) return;
+    let previewTargetId = enhancedFileId;
+    // Enhance if needed (or if settings changed)
+    if (!previewTargetId) {
+      setBusy(true); setError(''); setEnhanceProgress(0); setEnhanceProgressMsg('Applying mix settings…');
+      try {
+        const init = await enhanceMixOnBackend(songBackend.file_id, presenceBoost, reverbAmount, stereoWidth, busCompress);
+        const jobId = init?.job_id;
+        let job = init;
+        if (jobId) job = await pollUntilComplete(jobId, (p, msg) => { setEnhanceProgress(p); setEnhanceProgressMsg(msg); });
+        setEnhanceJob(job);
+        const mid = job?.result?.enhanced_file_id;
+        if (mid) { previewTargetId = mid; setEnhancedFileId(mid); setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`)); }
+      } catch (err) {
+        setError(`Mix failed: ${safeError(err)}`); setBusy(false); setEnhanceProgress(null); return;
+      }
+      setBusy(false); setEnhanceProgress(null);
+    }
+    // Style preview
+    const targetId = previewTargetId || songBackend.file_id;
+    setStylePreviewBusy(true); setStyleProgress(0); setStyleProgressMsg('Generating style preview…');
+    try {
+      const init = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) job = await pollUntilComplete(jobId, (p, msg) => { setStyleProgress(p); setStyleProgressMsg(msg); });
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus('Preview ready — sounds right? Hit "Master it →"');
+    } catch (err) {
+      setError(`Preview failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false); setStyleProgress(null);
+    }
+  };
+
   const runMaster = async ({ overrideStrength, airBoost = false } = {}) => {
     const targetId = enhancedFileId || songBackend?.file_id;
     if (!targetId) return;
@@ -548,7 +602,6 @@ export default function AudioMVPV2({ open, onClose }) {
       setMasterJob(job);
       const bust2 = Date.now();
       setMasterCacheBust(bust2);
-      setStatus('Mastering complete. Your files are ready to download.');
       // save to history
       const downloads = job?.result?.downloads || {};
       const entry = {
@@ -591,7 +644,7 @@ export default function AudioMVPV2({ open, onClose }) {
           created_at: new Date().toISOString(),
         },
       }));
-      if (step !== 5) go(5);
+      setStatus('Mastering complete. Your files are ready to download.');
     } catch (err) {
       setError(`Mastering failed: ${safeError(err)}`);
     } finally {
@@ -629,6 +682,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
     setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
+    setAdvancedOpen(false);
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
@@ -659,7 +713,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const renderStep = () => {
     switch (step) {
 
-      case 1: return (
+      case 1: return ( // ─── UPLOAD ───
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Step 1 — Upload your song</h3>
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
@@ -711,11 +765,12 @@ export default function AudioMVPV2({ open, onClose }) {
             />
           </div>
           <StatusBox message={status} error={error} busy={busy} />
-          <NavRow nextLabel="Next — Clean →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
+          {cleanProgress != null && <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />}
+          <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
         </div>
       );
 
-      case 2: return (
+      case 2: return ( // ─── SHAPE YOUR SOUND ───
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Step 2 — Clean your mix</h3>
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
@@ -817,182 +872,30 @@ export default function AudioMVPV2({ open, onClose }) {
         </div>
       );
 
-      case 3: return (
+      case 3: return ( // ─── MASTER & DOWNLOAD ───
         <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 3 — Mix</h3>
+          <h3 style={{ margin: '0 0 6px' }}>Master & Download</h3>
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            Shape your sound before mastering. These controls add presence, space, width and glue.
+            Pick your platform — Infinity hits the exact loudness target automatically.
           </p>
-          <div style={card}>
-            <div style={{ fontWeight: 700, marginBottom: 14 }}>Room & space</div>
-            <label style={{ display: 'block' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
-                <span>Reverb / room depth</span>
-                <b style={{ color: '#b78aff' }}>{reverbLabel} ({Math.round(reverbAmount * 100)}%)</b>
-              </div>
-              <input type="range" min="0" max="100" value={Math.round(reverbAmount * 100)} onChange={e => setReverbAmount(Number(e.target.value) / 100)} style={{ width: '100%' }} />
-              <div style={{ color: 'rgba(245,248,255,.38)', fontSize: 12, marginTop: 5 }}>Dry = no reverb · Room = subtle · Hall = spacious · Cathedral = lush</div>
-            </label>
-          </div>
-          <div style={{ ...card, marginTop: 14 }}>
-            <div style={{ fontWeight: 700, marginBottom: 14 }}>Stereo & tone</div>
-            <label style={{ display: 'block', marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14 }}>
-                <span>Stereo width</span>
-                <b style={{ color: '#ff4de1' }}>{stereoWidth.toFixed(1)}×</b>
-              </div>
-              <input type="range" min="100" max="200" value={Math.round(stereoWidth * 100)} onChange={e => setStereoWidth(Number(e.target.value) / 100)} style={{ width: '100%' }} />
-              <div style={{ color: 'rgba(245,248,255,.38)', fontSize: 12, marginTop: 5 }}>1.0× = original · 1.3× = wider · 2.0× = very wide</div>
-            </label>
-            {[
-              { label: 'Presence boost', sub: '+1.5 dB at 3.5 kHz + air shelf at 12 kHz — vocals and instruments cut through', val: presenceBoost, set: setPresenceBoost, color: '#55e9ff' },
-              { label: 'Bus compression', sub: 'Glue compressor + true-peak limiter — cohesive, radio-ready feel', val: busCompress, set: setBusCompress, color: '#57f09c' },
-            ].map(({ label, sub, val, set, color }) => (
-              <div key={label} data-infinity-local-action="true" onClick={() => set(!val)} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', cursor: 'pointer', userSelect: 'none' }}>
-                <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${val ? color : 'rgba(255,255,255,.2)'}`, background: val ? `${color}22` : 'transparent', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color }}>
-                  {val ? '✓' : ''}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: val ? color : '#f5f8ff' }}>{label}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 3, lineHeight: 1.5 }}>{sub}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {enhancedPreviewUrl && (
-            <div style={{ ...cardGreen, marginTop: 14 }}>
-              <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 8 }}>✓ Mix enhanced — preview:</div>
-              <audio controls src={enhancedPreviewUrl} style={{ width: '100%' }} />
-            </div>
-          )}
-          <button className="primary" onClick={runEnhance} disabled={busy || stylePreviewBusy} style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <RefreshCw size={16} /> {busy ? 'Enhancing...' : enhanceJob ? 'Re-mix with new settings' : 'Apply mix settings'}
-          </button>
 
-          {/* Genre style selection moved here from Master step */}
-          <div style={{ ...card, marginTop: 20 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Choose your sound style</div>
-            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
-              Pick a style and preview how your song sounds in it. Compare styles before you commit to mastering.
-            </div>
-            <div className="chips">
-              {MODES.map(m => (
-                <button key={m} className={mode === m ? 'chip active' : 'chip'} data-infinity-local-action="true" onClick={() => { setMode(m); setStylePreviewUrl(''); }}>{m}</button>
-              ))}
-            </div>
-            {/* Template recall — show when genre has saved settings from a previous master */}
-            {templates[mode] && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,207,102,.08)', border: '1px solid rgba(255,207,102,.28)', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, fontSize: 12, color: 'rgba(245,248,255,.7)', lineHeight: 1.5 }}>
-                  <b style={{ color: '#ffcf66' }}>Saved from last time:</b>{' '}
-                  {mode} · Intensity {templates[mode].strength}% · Warmth {templates[mode].warmth}%
-                  {templates[mode].lowEq !== 0 && ` · Low ${templates[mode].lowEq > 0 ? '+' : ''}${templates[mode].lowEq}dB`}
-                  {templates[mode].midEq !== 0 && ` · Mid ${templates[mode].midEq > 0 ? '+' : ''}${templates[mode].midEq}dB`}
-                  {templates[mode].highEq !== 0 && ` · High ${templates[mode].highEq > 0 ? '+' : ''}${templates[mode].highEq}dB`}
-                </div>
-                <button
-                  data-infinity-local-action="true"
-                  className="secondary"
-                  style={{ fontSize: 12, padding: '6px 12px', border: '1px solid rgba(255,207,102,.4)', color: '#ffcf66', whiteSpace: 'nowrap' }}
-                  onClick={() => {
-                    setStrength(templates[mode].strength);
-                    setWarmth(templates[mode].warmth);
-                    setLowEq(templates[mode].lowEq);
-                    setMidEq(templates[mode].midEq);
-                    setHighEq(templates[mode].highEq);
-                    setStylePreviewUrl('');
-                  }}
-                >
-                  Use these →
-                </button>
-              </div>
-            )}
-            {(() => {
-              const desc = MODE_DESCRIPTIONS[mode];
-              if (!desc) return null;
-              return (
-                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: `${desc.color}10`, border: `1px solid ${desc.color}28` }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                    {desc.tags.map(t => <span key={t} style={{ fontSize: 11, fontWeight: 700, color: desc.color, background: `${desc.color}18`, borderRadius: 99, padding: '3px 9px' }}>{t}</span>)}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{desc.detail}</div>
-                </div>
-              );
-            })()}
-            <label className="range" style={{ marginTop: 14 }}>
-              <span>Style intensity <b>{strength}%</b></span>
-              <input type="range" min="0" max="100" value={strength} onChange={e => { setStrength(Number(e.target.value)); setStylePreviewUrl(''); }} />
-            </label>
-            <button
-              className="primary"
-              data-infinity-local-action="true"
-              disabled={stylePreviewBusy || busy || !songBackend}
-              onClick={runStylePreview}
-              style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}
-            >
-              <Sparkles size={15} /> {stylePreviewBusy ? `Generating ${mode} preview…` : `Preview my song in ${mode}`}
-            </button>
-            {stylePreviewUrl && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 6 }}>30s preview — {mode}</div>
-                <audio key={stylePreviewUrl} controls src={stylePreviewUrl} style={{ width: '100%' }} />
-                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginTop: 6 }}>
-                  Happy with the sound? Hit Next to choose your release platform.
-                </div>
-              </div>
-            )}
-          </div>
-
-          <ProgressBar progress={enhanceProgress} label={enhanceProgressMsg} color="#55e9ff" />
-          <ProgressBar progress={styleProgress} label={styleProgressMsg} color="#b78aff" />
-          <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
-          <NavRow onBack={() => go(2)} nextLabel="Next — Master →" onNext={() => go(4)} nextDisabled={busy || stylePreviewBusy} />
-        </div>
-      );
-
-      case 4: return (
-        <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 4 — Master for your platform</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 14, lineHeight: 1.6 }}>
-            Where are you releasing? Infinity hits the exact loudness target for that platform automatically.
-          </p>
-          {/* Listen before you master */}
-          {(stylePreviewUrl || enhancedPreviewUrl) && (() => {
-            const previewSrc = stylePreviewUrl || enhancedPreviewUrl;
+          {/* Style preview confirm */}
+          {stylePreviewUrl && !masterJob && (() => {
             const desc = MODE_DESCRIPTIONS[mode];
-            const label = stylePreviewUrl
-              ? `Your mix in ${mode} — listen before mastering`
-              : 'Your mix — listen before mastering';
             return (
               <div style={{ ...card, marginBottom: 16, border: `1px solid ${desc?.color || '#55e9ff'}28`, background: `${desc?.color || '#55e9ff'}08` }}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: desc?.color || '#55e9ff' }}>{label}</div>
-                <Waveform src={previewSrc} color={desc?.color || '#55e9ff'} />
-                <audio key={previewSrc} controls src={previewSrc} style={{ width: '100%', marginTop: 8 }} />
+                <div style={{ fontWeight: 700, marginBottom: 8, color: desc?.color || '#55e9ff' }}>Your {mode} preview — ready to master</div>
+                <Waveform src={stylePreviewUrl} color={desc?.color || '#55e9ff'} />
+                <audio key={stylePreviewUrl} controls src={stylePreviewUrl} style={{ width: '100%', marginTop: 8 }} />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)' }}>
-                    Happy with the sound? Set your platform and final tweaks below, then hit Master.
-                  </div>
-                  <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '5px 10px' }} onClick={() => go(3)}>← Change style</button>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)' }}>Happy with the sound? Set your platform below and hit Master.</div>
+                  <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '5px 10px' }} onClick={() => go(2)}>← Change style</button>
                 </div>
               </div>
             );
           })()}
 
-          {/* Selected style summary */}
-          {(() => {
-            const desc = MODE_DESCRIPTIONS[mode];
-            return desc ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', borderRadius: 12, background: `${desc.color}0e`, border: `1px solid ${desc.color}28` }}>
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 12, color: 'rgba(245,248,255,.45)' }}>Sound style: </span>
-                  <b style={{ color: desc.color }}>{mode}</b>
-                  {stylePreviewUrl && <span style={{ fontSize: 12, color: '#57f09c', marginLeft: 8 }}>✓ previewed</span>}
-                </div>
-                <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '5px 10px', whiteSpace: 'nowrap' }} onClick={() => go(3)}>Change ↩</button>
-              </div>
-            ) : null;
-          })()}
-          {/* Platform selection */}
+          {/* Platform grid */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: 8, marginBottom: 16 }}>
             {PLATFORMS.map(p => (
               <button key={p.id} data-infinity-local-action="true" onClick={() => setPlatform(p.id)}
@@ -1002,45 +905,8 @@ export default function AudioMVPV2({ open, onClose }) {
               </button>
             ))}
           </div>
-          {/* Warmth + EQ fine-tune */}
-          <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Final polish</div>
-            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>Fine-tune the master before it goes out. These stack on top of your style choice.</div>
-            <label className="range">
-              <span>
-                Warmth / Analog saturation <b>{warmth}%</b>
-                <span style={{ fontWeight: 400, fontSize: 11, color: 'rgba(245,248,255,.42)', marginLeft: 6 }}>
-                  {warmth === 0 ? '— clean digital' : warmth < 35 ? '— subtle tape' : warmth < 65 ? '— analog warmth' : '— tube drive'}
-                </span>
-              </span>
-              <input type="range" min="0" max="100" value={warmth} onChange={e => setWarmth(Number(e.target.value))} />
-            </label>
-          </div>
-          <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Tone balance</div>
-            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 14, lineHeight: 1.5 }}>
-              Fine-tune the frequency balance of the master. 0 = neutral — these add on top of the genre style.
-            </div>
-            {[
-              { label: 'Low', freq: '<200 Hz — bass & sub', val: lowEq, set: setLowEq, color: '#b78aff' },
-              { label: 'Mid', freq: '200 Hz–4 kHz — warmth & presence', val: midEq, set: setMidEq, color: '#55e9ff' },
-              { label: 'High', freq: '>4 kHz — air & brightness', val: highEq, set: setHighEq, color: '#57f09c' },
-            ].map(({ label, freq, val, set, color }) => (
-              <label key={label} className="range" style={{ marginBottom: 10 }}>
-                <span>
-                  <b style={{ color }}>{label}</b>
-                  <span style={{ color: 'rgba(245,248,255,.42)', fontSize: 12, marginLeft: 6 }}>{freq}</span>
-                  <b style={{ marginLeft: 8, color: val > 0 ? '#57f09c' : val < 0 ? '#ff6b6b' : 'rgba(245,248,255,.5)' }}>
-                    {val > 0 ? `+${val}` : val} dB
-                  </b>
-                </span>
-                <input type="range" min="-6" max="6" step="0.5" value={val} onChange={e => set(Number(e.target.value))} data-infinity-local-action="true" />
-              </label>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => { setLowEq(0); setMidEq(0); setHighEq(0); }}>Reset EQ</button>
-            </div>
-          </div>
+
+          {/* Reference track */}
           <div style={{ ...card, marginBottom: 16 }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>Reference track <span style={{ fontSize: 12, fontWeight: 400, color: 'rgba(245,248,255,.42)' }}>optional</span></div>
             <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 10, lineHeight: 1.5 }}>
@@ -1060,213 +926,189 @@ export default function AudioMVPV2({ open, onClose }) {
               )}
             </label>
           </div>
-          <button className="primary" onClick={() => runMaster()} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 8, width: isMobile ? '100%' : 'auto', justifyContent: 'center' }}>
-            <Sparkles size={16} /> {busy ? 'Mastering…' : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
+
+          {/* Master button */}
+          <button className="primary" onClick={() => runMaster()} disabled={busy}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: 'center', fontSize: 16, padding: '14px 0', marginBottom: 12 }}>
+            <Sparkles size={17} /> {busy ? 'Mastering…' : masterJob ? `Re-master for ${PLATFORMS.find(p => p.id === platform)?.label}` : `Master for ${PLATFORMS.find(p => p.id === platform)?.label}`}
           </button>
           <ProgressBar progress={masterProgress} label={masterProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy} />
-          <NavRow onBack={() => go(3)} nextLabel="Next → Download" onNext={() => go(5)} nextDisabled={!masterJob || busy} />
-        </div>
-      );
 
-      case 5: return (
-        <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 5 — Download your master</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            WAV for distribution and archiving. MP3 320k for fast sharing.
-          </p>
-
+          {/* Results — shown after mastering */}
           {masterJob?.result && (
-            <div style={{ ...cardGreen, marginBottom: 16 }}>
-              <div style={{ fontWeight: 800, marginBottom: 12 }}>✓ {projectName || songFile?.name?.replace(/\.[^.]+$/, '') || 'Master'} — complete</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                {[
-                  ['Platform', PLATFORMS.find(p => p.id === platform)?.label],
-                  ['Style', mode],
-                  ['Intensity', `${strength}%`],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ borderBottom: '1px solid rgba(255,255,255,.06)', padding: '6px 0' }}>
-                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.44)' }}>{k}</div>
-                    <div style={{ fontWeight: 700, marginTop: 3 }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-              {/* Loudness meter */}
-              <div style={{ background: 'rgba(0,0,0,.2)', borderRadius: 12, padding: '12px 14px' }}>
-                <div style={{ fontSize: 11, color: 'rgba(245,248,255,.44)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Loudness</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>Your upload</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: analysisData?.integrated_lufs != null ? '#ffcf66' : 'rgba(245,248,255,.3)' }}>
-                      {analysisData?.integrated_lufs != null ? `${analysisData.integrated_lufs} LUFS` : '— LUFS'}
+            <>
+              <div style={{ ...cardGreen, marginTop: 16, marginBottom: 16 }}>
+                <div style={{ fontWeight: 800, marginBottom: 12 }}>✓ {projectName || songFile?.name?.replace(/\.[^.]+$/, '') || 'Master'} — complete</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  {[
+                    ['Platform', PLATFORMS.find(p => p.id === platform)?.label],
+                    ['Style', mode],
+                    ['Intensity', `${strength}%`],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ borderBottom: '1px solid rgba(255,255,255,.06)', padding: '6px 0' }}>
+                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.44)' }}>{k}</div>
+                      <div style={{ fontWeight: 700, marginTop: 3 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: 'rgba(0,0,0,.2)', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: 'rgba(245,248,255,.44)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Loudness</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>Your upload</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: analysisData?.integrated_lufs != null ? '#ffcf66' : 'rgba(245,248,255,.3)' }}>
+                        {analysisData?.integrated_lufs != null ? `${analysisData.integrated_lufs} LUFS` : '— LUFS'}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 22, color: '#57f09c', fontWeight: 800 }}>→</div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>After master</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: '#57f09c' }}>{targetLufs} LUFS</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginLeft: 'auto' }}>
+                      {PLATFORMS.find(p => p.id === platform)?.label} target
                     </div>
                   </div>
-                  <div style={{ fontSize: 22, color: '#57f09c', fontWeight: 800 }}>→</div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 2 }}>After master</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#57f09c' }}>{targetLufs} LUFS</div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginLeft: 'auto' }}>
-                    {PLATFORMS.find(p => p.id === platform)?.label} target
-                  </div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* A/B Toggle + preview */}
-          {masterPreviewUrl && (
-            <div style={{ ...card, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
-                  {abMode === 'original' ? 'Original upload' : '30-second master preview'}
+              {masterPreviewUrl && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
+                      {abMode === 'original' ? 'Original upload' : '30-second master preview'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
+                      {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
+                        <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
+                          style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
+                  <audio key={abAudioUrl} controls src={abAudioUrl} style={{ width: '100%', marginTop: 8 }} />
                 </div>
-                <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
-                  {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
-                    <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
-                      style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
-                      {label}
+              )}
+
+              {masterPreviewUrl && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Frequency spectrum</div>
+                  <SpectrumAnalyzer src={masterPreviewUrl} color="#b78aff" />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'rgba(245,248,255,.28)', marginTop: 4 }}>
+                    <span>30 Hz</span><span>100 Hz</span><span>1 kHz</span><span>5 kHz</span><span>20 kHz</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                {masterWavUrl && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <a className="primary" href={masterWavUrl} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
+                      <Download size={15} /> Master WAV
+                    </a>
+                    <button data-infinity-local-action="true" onClick={() => handleShare(masterWavUrl, 'Master WAV')}
+                      style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === 'Master WAV' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {copied === 'Master WAV' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
                     </button>
+                  </div>
+                )}
+                {masterMp3Url && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <a className="secondary" href={masterMp3Url} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
+                      <Download size={15} /> MP3 320k
+                    </a>
+                    <button data-infinity-local-action="true" onClick={() => handleShare(masterMp3Url, 'MP3 320k')}
+                      style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === 'MP3 320k' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {copied === 'MP3 320k' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
+                    </button>
+                  </div>
+                )}
+                {masterPreviewUrl && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <a className="secondary" href={masterPreviewUrl} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
+                      <Download size={15} /> 30s preview
+                    </a>
+                    <button data-infinity-local-action="true" onClick={() => handleShare(masterPreviewUrl, '30s preview')}
+                      style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === '30s preview' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {copied === '30s preview' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ ...card, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Separate stems</div>
+                <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+                  Split your track into <b>Vocals</b> (center channel) + <b>Instrumental</b> (stereo field). FFmpeg-based — fast, no GPU needed.
+                </div>
+                {!stemJob && (
+                  <button className="secondary" data-infinity-local-action="true" disabled={stemBusy || !songBackend} onClick={runStemSeparation} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Sparkles size={14} /> {stemBusy ? 'Separating…' : 'Separate stems'}
+                  </button>
+                )}
+                <ProgressBar progress={stemProgress} label={stemProgressMsg} color="#ffcf66" />
+                {stemJob?.result?.downloads && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    {Object.entries(stemJob.result.downloads).map(([key, url]) => (
+                      <a key={key} href={backendUrl(url)} download className="secondary" style={{ fontSize: 12, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Download size={12} /> {key.charAt(0).toUpperCase() + key.slice(1)} WAV
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {stemJob && <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginTop: 8 }}>{stemJob?.result?.note || 'Mid/Side extraction complete.'}</div>}
+              </div>
+
+              <div style={{ ...card, marginBottom: 16 }}>
+                <div style={{ fontWeight: 800, marginBottom: 4, color: '#55e9ff' }}>Make it hit harder</div>
+                <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 13, marginBottom: 14 }}>Re-master with enhanced settings — overwrites current master.</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <button className="primary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15) })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                    {busy ? '⏳ Re-mastering...' : `⚡ More punch — ${Math.min(100, strength + 15)}%`}
+                  </button>
+                  <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                    {busy ? '⏳' : '✨ More air'}
+                  </button>
+                  <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15), airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
+                    {busy ? '⏳' : '🔥 Both'}
+                  </button>
+                </div>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Already applied</div>
+                  {HIT_HARDER_TIPS.map((tip, i) => (
+                    <div key={i} style={{ color: 'rgba(245,248,255,.55)', fontSize: 13, padding: '6px 0', borderBottom: i < HIT_HARDER_TIPS.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none', lineHeight: 1.5 }}>
+                      <span style={{ color: '#57f09c', marginRight: 8 }}>✓</span>{tip}
+                    </div>
                   ))}
                 </div>
               </div>
-              <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
-              <audio key={abAudioUrl} controls src={abAudioUrl} style={{ width: '100%', marginTop: 8 }} />
-            </div>
-          )}
 
-          {/* Spectrum analyzer */}
-          {masterPreviewUrl && (
-            <div style={{ ...card, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Frequency spectrum</div>
-              <SpectrumAnalyzer src={masterPreviewUrl} color="#b78aff" />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'rgba(245,248,255,.28)', marginTop: 4 }}>
-                <span>30 Hz</span><span>100 Hz</span><span>1 kHz</span><span>5 kHz</span><span>20 kHz</span>
-              </div>
-            </div>
-          )}
-
-          {/* Stem separation */}
-          <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Separate stems</div>
-            <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
-              Split your track into <b>Vocals</b> (center channel) + <b>Instrumental</b> (stereo field). FFmpeg-based — fast, no GPU needed.
-            </div>
-            {!stemJob && (
-              <button
-                className="secondary"
-                data-infinity-local-action="true"
-                disabled={stemBusy || !songBackend}
-                onClick={runStemSeparation}
-                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-              >
-                <Sparkles size={14} /> {stemBusy ? 'Separating…' : 'Separate stems'}
-              </button>
-            )}
-            <ProgressBar progress={stemProgress} label={stemProgressMsg} color="#ffcf66" />
-            {stemJob?.result?.downloads && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                {Object.entries(stemJob.result.downloads).map(([key, url]) => (
-                  <a key={key} href={backendUrl(url)} download className="secondary"
-                    style={{ fontSize: 12, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Download size={12} /> {key.charAt(0).toUpperCase() + key.slice(1)} WAV
-                  </a>
-                ))}
-              </div>
-            )}
-            {stemJob && <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', marginTop: 8 }}>{stemJob?.result?.note || 'Mid/Side extraction complete.'}</div>}
-          </div>
-
-          {/* Download + Share */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-            {masterWavUrl && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <a className="primary" href={masterWavUrl} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
-                  <Download size={15} /> Master WAV
-                </a>
-                <button data-infinity-local-action="true" onClick={() => handleShare(masterWavUrl, 'Master WAV')}
-                  style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === 'Master WAV' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
-                  {copied === 'Master WAV' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
-                </button>
-              </div>
-            )}
-            {masterMp3Url && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <a className="secondary" href={masterMp3Url} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
-                  <Download size={15} /> MP3 320k
-                </a>
-                <button data-infinity-local-action="true" onClick={() => handleShare(masterMp3Url, 'MP3 320k')}
-                  style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === 'MP3 320k' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
-                  {copied === 'MP3 320k' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
-                </button>
-              </div>
-            )}
-            {masterPreviewUrl && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <a className="secondary" href={masterPreviewUrl} download style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
-                  <Download size={15} /> 30s preview
-                </a>
-                <button data-infinity-local-action="true" onClick={() => handleShare(masterPreviewUrl, '30s preview')}
-                  style={{ border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.06)', color: copied === '30s preview' ? '#57f09c' : '#f5f8ff', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
-                  {copied === '30s preview' ? <><Copy size={13} /> Copied!</> : <><Share2 size={13} /> Share</>}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <StatusBox message={status} error={error} busy={busy} />
-
-          {/* Make it hit harder */}
-          <div style={{ ...card, marginTop: 16 }}>
-            <div style={{ fontWeight: 800, marginBottom: 4, color: '#55e9ff' }}>Make it hit harder</div>
-            <div style={{ color: 'rgba(245,248,255,.45)', fontSize: 13, marginBottom: 14 }}>Re-master with enhanced settings — overwrites current master.</div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-              <button className="primary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15) })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                {busy ? '⏳ Re-mastering...' : `⚡ More punch — ${Math.min(100, strength + 15)}%`}
-              </button>
-              <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                {busy ? '⏳' : '✨ More air'}
-              </button>
-              <button className="secondary" data-infinity-local-action="true" disabled={busy} onClick={() => runMaster({ overrideStrength: Math.min(100, strength + 15), airBoost: true })} style={{ fontSize: 13, padding: '10px 18px' }}>
-                {busy ? '⏳' : '🔥 Both'}
-              </button>
-            </div>
-            <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14 }}>
-              <div style={{ fontSize: 12, color: 'rgba(245,248,255,.38)', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Already applied</div>
-              {HIT_HARDER_TIPS.map((tip, i) => (
-                <div key={i} style={{ color: 'rgba(245,248,255,.55)', fontSize: 13, padding: '6px 0', borderBottom: i < HIT_HARDER_TIPS.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none', lineHeight: 1.5 }}>
-                  <span style={{ color: '#57f09c', marginRight: 8 }}>✓</span>{tip}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* History */}
-          {history.length > 0 && (
-            <div style={{ ...card, marginTop: 16 }}>
-              <div style={{ fontWeight: 800, marginBottom: 12, color: 'rgba(245,248,255,.7)' }}>Recent masters</div>
-              {history.map((h, i) => (
-                <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < history.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none', flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginTop: 2 }}>
-                      {h.genre} · {PLATFORMS.find(p => p.id === h.platform)?.label} · {h.strength}% · {fmtDate(h.date)}
+              {history.length > 0 && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontWeight: 800, marginBottom: 12, color: 'rgba(245,248,255,.7)' }}>Recent masters</div>
+                  {history.map((h, i) => (
+                    <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < history.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename}</div>
+                        <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginTop: 2 }}>
+                          {h.genre} · {PLATFORMS.find(p => p.id === h.platform)?.label} · {h.strength}% · {fmtDate(h.date)}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {h.wavUrl && <a href={h.wavUrl} download style={{ fontSize: 11, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', display: 'flex', alignItems: 'center', gap: 4 }}><Download size={11} /> WAV</a>}
+                        {h.mp3Url && <a href={h.mp3Url} download style={{ fontSize: 11, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', display: 'flex', alignItems: 'center', gap: 4 }}><Download size={11} /> MP3</a>}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {h.wavUrl && <a href={h.wavUrl} download style={{ fontSize: 11, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', display: 'flex', alignItems: 'center', gap: 4 }}><Download size={11} /> WAV</a>}
-                    {h.mp3Url && <a href={h.mp3Url} download style={{ fontSize: 11, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.05)', color: '#f5f8ff', display: 'flex', alignItems: 'center', gap: 4 }}><Download size={11} /> MP3</a>}
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
 
-          <NavRow
-            onBack={() => go(4)}
-            secondaryLabel="Start new project"
-            onSecondary={resetAll}
-          />
+          <NavRow onBack={() => go(2)} secondaryLabel="Start new project" onSecondary={resetAll} />
         </div>
       );
 
