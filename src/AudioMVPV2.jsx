@@ -532,6 +532,23 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runStylePreview = async () => {
+    const targetId = enhancedFileId || songBackend?.file_id;
+    if (!targetId) return;
+    setStylePreviewBusy(true); setError('');
+    setStatus(`Generating ${mode} style preview — 30 seconds…`);
+    try {
+      const job = await previewStyleOnBackend(targetId, mode, strength, warmth / 100);
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus('Style preview ready. Switch styles to compare, then proceed to master.');
+    } catch (err) {
+      setError(`Style preview failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false);
+    }
+  };
+
   const runMaster = async ({ overrideStrength, airBoost = false } = {}) => {
     const targetId = enhancedFileId || songBackend?.file_id;
     if (!targetId) return;

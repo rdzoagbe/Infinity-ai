@@ -164,6 +164,30 @@ def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewReques
         fail_job(job_id, str(e))
 
 
+@app.post("/api/v1/audio/style-preview")
+def style_preview(payload: StylePreviewRequest):
+    file_data = get_file_or_404(payload.file_id)
+    workspace = Path(file_data["workspace"])
+    # Prefer cleaned or enhanced file if available in the workspace
+    enhanced = workspace / "renders" / "enhanced.wav"
+    cleaned = workspace / "renders" / "mix-cleaned.wav"
+    if enhanced.exists():
+        input_path = enhanced
+    elif cleaned.exists():
+        input_path = cleaned
+    else:
+        input_path = Path(file_data["stored_path"])
+    output_dir = workspace / "renders"
+    job = create_job(JobType.master, message="Style preview started")
+    result_data = render_style_preview_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.warmth)
+    downloads = {}
+    if result_data.get("status") == "completed":
+        downloads["style_preview"] = f"/api/v1/files/{payload.file_id}/download/style-preview"
+    result = {"file_id": payload.file_id, "mode": payload.mode, "preview": result_data, "downloads": downloads}
+    msg = "Style preview ready" if result_data.get("status") == "completed" else f"Style preview failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    return complete_job(job, result, msg)
+
+
 @app.post("/api/v1/audio/separate-stems")
 def separate_stems(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
     file_data = get_file_or_404(payload.file_id)
