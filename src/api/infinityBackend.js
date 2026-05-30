@@ -172,6 +172,18 @@ export async function getBackendJob(jobId) {
   return parseResponse(response, "Job lookup failed");
 }
 
+export async function pollUntilComplete(jobId, onProgress = null, intervalMs = 1200) {
+  const MAX_POLLS = 180; // 3.6 minutes max
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    const job = await getBackendJob(jobId);
+    if (onProgress && job.progress != null) onProgress(job.progress, job.message || '');
+    if (job.status === 'completed') return job;
+    if (job.status === 'failed') throw new Error(job.message || 'Job failed');
+  }
+  throw new Error('Operation timed out after 3 minutes');
+}
+
 export async function uploadAndMeasureLufsOnBackend(file) {
   const formData = new FormData();
   formData.append("file", file);
@@ -186,6 +198,15 @@ export async function uploadAndMeasureLufsOnBackend(file) {
   });
   const analyzeData = await parseResponse(analyzeRes, "Reference analyze failed");
   return analyzeData?.integrated_lufs ?? null;
+}
+
+export async function buildReleasePackageOnBackend(fileId) {
+  const response = await fetch(`${API_BASE}/api/v1/export/release-package`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  return parseResponse(response, "Release package failed");
 }
 
 export { API_BASE };

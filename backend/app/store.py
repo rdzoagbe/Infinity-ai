@@ -52,13 +52,30 @@ def create_job(job_type: JobType, message: str = "Queued", result: dict | None =
     job = Job(
         job_id=make_id("job"),
         job_type=job_type,
-        status=JobStatus.completed if result else JobStatus.queued,
+        status=JobStatus.completed if result else JobStatus.processing,
         message=message,
         progress=100 if result else 0,
         result=result,
     )
     JOBS[job.job_id] = job
     return job
+
+
+def update_job_progress(job_id: str, progress: int, message: str) -> None:
+    job = JOBS.get(job_id)
+    if job:
+        job.progress = progress
+        job.message = message
+        job.status = JobStatus.processing
+        job.updated_at = datetime.utcnow()
+
+
+def fail_job(job_id: str, message: str) -> None:
+    job = JOBS.get(job_id)
+    if job:
+        job.status = JobStatus.failed
+        job.message = message
+        job.updated_at = datetime.utcnow()
 
 
 def complete_job(job: Job, result: dict, message: str = "Completed") -> Job:
