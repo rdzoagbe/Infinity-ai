@@ -20,6 +20,7 @@ class JobType(str, Enum):
     export = "export"
     clean_vocals = "clean_vocals"
     mix_vocal_beat = "mix_vocal_beat"
+    transform_style = "transform_style"
 
 
 class AudioFileMetadata(BaseModel):
@@ -93,6 +94,13 @@ class SoundGenerateRequest(BaseModel):
     intensity: int = 68
     genre: str = "Cinematic"
     emotion: str = "Mystic"
+
+
+class TransformStyleRequest(BaseModel):
+    file_id: str
+    mode: str = "Afrobeat"
+    strength: int = 72
+    duration: int = 30
 
 
 class ProjectCreateRequest(BaseModel):

@@ -34,6 +34,11 @@ export default function InfinityActionRouter() {
     return () => window.removeEventListener('infinity:open-studio', openHandler);
   }, []);
 
+  const closeStudio = () => {
+    setAudioMvpOpen(false);
+    window.dispatchEvent(new CustomEvent('infinity:close-studio'));
+  };
+
   useEffect(() => {
     const handler = (event) => {
       const button = event.target.closest?.('button');
@@ -61,7 +66,7 @@ export default function InfinityActionRouter() {
       <AuthDashboard>
         <BaseInfinityApp />
       </AuthDashboard>
-      <AudioMVP open={audioMvpOpen} onClose={() => setAudioMvpOpen(false)} />
+      <AudioMVP open={audioMvpOpen} onClose={closeStudio} />
     </>
   );
 }

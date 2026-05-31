@@ -12,6 +12,7 @@ import {
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
+  transformStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
@@ -55,6 +56,11 @@ const HIT_HARDER_TIPS = [
 
 const HISTORY_KEY = 'infinity_master_history';
 const TEMPLATES_KEY = 'infinity_mix_templates';
+const SESSION_KEY = 'infinity_studio_session_v1';
+
+function loadSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
+function saveSession(data) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch {} }
+function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch {} }
 
 function loadHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
@@ -361,12 +367,34 @@ export default function AudioMVPV2({ open, onClose }) {
 
   // UI state
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [transformJob, setTransformJob] = useState(null);
+  const [transformProgress, setTransformProgress] = useState(null);
+  const [transformProgressMsg, setTransformProgressMsg] = useState('');
 
+  const [restoredName, setRestoredName] = useState('');
   const songUrlRef = useRef('');
 
+  // Save session whenever key state changes
+  useEffect(() => {
+    if (!songBackend?.file_id) return;
+    saveSession({ songBackend, projectName, mode, platform, strength, warmth, savedAt: new Date().toISOString() });
+  }, [songBackend, projectName, mode, platform, strength, warmth]);
+
+  // Restore session when studio opens
   useEffect(() => {
     if (!open) return;
     checkBackendHealth().then(() => setBackendOnline(true)).catch(() => setBackendOnline(false));
+    if (songBackend?.file_id) return; // already has a song loaded
+    const saved = loadSession();
+    if (!saved?.songBackend?.file_id) return;
+    setSongBackend(saved.songBackend);
+    if (saved.projectName) setProjectName(saved.projectName);
+    if (saved.mode) setMode(saved.mode);
+    if (saved.platform) setPlatform(saved.platform);
+    if (saved.strength != null) setStrength(saved.strength);
+    if (saved.warmth != null) setWarmth(saved.warmth);
+    const name = saved.songBackend.filename || saved.songBackend.name || saved.projectName || 'previous track';
+    setRestoredName(name);
   }, [open]);
 
   useEffect(() => () => {
@@ -548,6 +576,29 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const runTransform = async () => {
+    if (!songBackend?.file_id) return;
+    setStylePreviewBusy(true); setStyleProgress(0); setStyleProgressMsg(`Transforming to ${mode}…`);
+    setError(''); setTransformProgress(0);
+    try {
+      const init = await transformStyleOnBackend(songBackend.file_id, mode, strength);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) job = await pollUntilComplete(jobId, (p, msg) => {
+        setStyleProgress(p); setStyleProgressMsg(msg);
+        setTransformProgress(p);
+      });
+      setTransformJob(job);
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus(`${mode} transform ready — sounds right? Hit "Master it →"`);
+    } catch (err) {
+      setError(`Transform failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
+    }
+  };
+
   const runShapePreview = async () => {
     if (!songBackend?.file_id) return;
     let previewTargetId = enhancedFileId;
@@ -672,8 +723,10 @@ export default function AudioMVPV2({ open, onClose }) {
   };
 
   const resetAll = () => {
+    clearSession();
     setStep(1);
     setProjectName('');
+    setRestoredName('');
     setSongFile(null); setSongBackend(null); setSongUrl(''); setAnalysisData(null);
     setCleanJob(null); setCleanedPreviewUrl('');
     setEnhanceJob(null); setEnhancedFileId(null); setEnhancedPreviewUrl('');
@@ -719,6 +772,22 @@ export default function AudioMVPV2({ open, onClose }) {
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
             Upload your finished recording — beat and vocals already together. MP3 or WAV recommended.
           </p>
+          {/* Restored session banner */}
+          {restoredName && !songFile && (
+            <div style={{ ...cardGreen, marginBottom: 12, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 4 }}>↩ Last session restored</div>
+                <div style={{ color: 'rgba(245,248,255,.6)', fontSize: 13 }}>{restoredName} — ready to continue from where you left off</div>
+                <div style={{ color: 'rgba(245,248,255,.4)', fontSize: 12, marginTop: 4 }}>You can go straight to Step 2, or drop a new file below to start fresh.</div>
+              </div>
+              <button
+                type="button" data-infinity-local-action="true"
+                onClick={() => { setSongBackend(null); setRestoredName(''); clearSession(); }}
+                style={{ background: 'none', border: 'none', color: 'rgba(245,248,255,.38)', cursor: 'pointer', padding: 0, flexShrink: 0, fontSize: 18, lineHeight: 1 }}
+                title="Clear restored session"
+              >×</button>
+            </div>
+          )}
           {songFile && (
             <div style={{ ...cardGreen, marginBottom: 12 }}>
               <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 4 }}>✓ {songFile.name}</div>
@@ -857,13 +926,16 @@ export default function AudioMVPV2({ open, onClose }) {
             </div>
           )}
 
-          {/* Preview button */}
+          {/* Transform button */}
           <button className="primary" data-infinity-local-action="true"
             disabled={stylePreviewBusy || busy || !songBackend}
-            onClick={runShapePreview}
+            onClick={runTransform}
             style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: 'center', fontSize: 15, padding: '13px 0', marginBottom: 12 }}>
-            <Sparkles size={15} /> {stylePreviewBusy ? `Generating ${mode} preview…` : `Preview my sound in ${mode}`}
+            <Sparkles size={15} /> {stylePreviewBusy ? `Transforming to ${mode}…` : `Transform my sound to ${mode}`}
           </button>
+          <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', textAlign: 'center', marginBottom: 12 }}>
+            AI generates a new version of your track in {mode} style — same melody, new sound
+          </div>
 
           <ProgressBar progress={enhanceProgress ?? styleProgress} label={enhanceProgress != null ? enhanceProgressMsg : styleProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
