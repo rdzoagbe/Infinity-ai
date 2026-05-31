@@ -535,21 +535,23 @@ def transform_style_endpoint(payload: TransformStyleRequest, background_tasks: B
 
 def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRequest):
     try:
+        import replicate as replicate_sdk
+        import subprocess, tempfile, time
+
         update_job_progress(job_id, 5, "Preparing audio…")
         workspace = Path(file_data["workspace"])
         enhanced = workspace / "renders" / "enhanced.wav"
-        cleaned = workspace / "renders" / "mix-cleaned.wav"
+        cleaned  = workspace / "renders" / "mix-cleaned.wav"
         input_path = enhanced if enhanced.exists() else (cleaned if cleaned.exists() else Path(file_data["stored_path"]))
 
-        # Extract first 30s as mp3 (small payload for Replicate)
-        import subprocess, tempfile
+        # Extract first 30 s as MP3 for Replicate melody input
         tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp.close()
-        subprocess.run([
-            "ffmpeg", "-y", "-i", str(input_path), "-t", "30",
-            "-ar", "44100", "-ab", "128k", tmp.name
-        ], capture_output=True)
-
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(input_path), "-t", str(payload.duration),
+             "-ar", "44100", "-ab", "128k", tmp.name],
+            capture_output=True,
+        )
         with open(tmp.name, "rb") as f:
             melody_b64 = base64.b64encode(f.read()).decode()
         melody_uri = f"data:audio/mp3;base64,{melody_b64}"
@@ -562,93 +564,48 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
 
         update_job_progress(job_id, 15, f"Sending to Replicate — {payload.mode} transform…")
 
-        headers = {
-            "Authorization": f"Token {settings.replicate_api_token}",
-            "Content-Type": "application/json",
-        }
-        create_body = {
-            "input": {
+        # Use the official Replicate SDK so version resolution is handled automatically
+        client = replicate_sdk.Client(api_token=settings.replicate_api_token)
+
+        update_job_progress(job_id, 20, "AI is generating your transformed track — this takes ~1 min…")
+
+        output = client.run(
+            "meta/musicgen",
+            input={
                 "model_version": "melody",
                 "prompt": prompt,
                 "melody": melody_uri,
                 "duration": payload.duration,
                 "output_format": "mp3",
                 "normalization_strategy": "peak",
-            }
-        }
+            },
+        )
 
-        with httpx.Client(timeout=300) as client:
-            # Resolve the latest version ID for the model (MusicGen requires versioned predictions)
-            version_id = None
-            for model_slug in ("meta/musicgen", "facebook/musicgen"):
-                mv = client.get(f"https://api.replicate.com/v1/models/{model_slug}", headers=headers)
-                if mv.status_code == 200:
-                    version_id = mv.json().get("latest_version", {}).get("id")
-                    if version_id:
-                        break
-            if not version_id:
-                fail_job(job_id, "Could not find MusicGen model on Replicate — check that the model is public")
-                return
+        # output is a FileOutput or list — get the URL
+        output_url = output[0] if isinstance(output, (list, tuple)) else output
+        output_url = str(output_url)
 
-            create_body["version"] = version_id
-            r = client.post(
-                "https://api.replicate.com/v1/predictions",
-                headers=headers, json=create_body
-            )
-            if r.status_code not in (200, 201):
-                fail_job(job_id, f"Replicate API error {r.status_code}: {r.text[:300]}")
-                return
-            prediction = r.json()
-            prediction_id = prediction["id"]
-
-            update_job_progress(job_id, 25, "AI generating your transformed track…")
-            # Poll until done
-            for attempt in range(120):
-                import time
-                time.sleep(3)
-                poll = client.get(
-                    f"https://api.replicate.com/v1/predictions/{prediction_id}",
-                    headers=headers
-                )
-                pred = poll.json()
-                status = pred.get("status")
-                if status == "succeeded":
-                    break
-                if status == "failed":
-                    fail_job(job_id, f"Replicate generation failed: {pred.get('error', 'unknown')}")
-                    return
-                progress = min(85, 25 + attempt * 0.7)
-                update_job_progress(job_id, int(progress), "AI transforming your track…")
-            else:
-                fail_job(job_id, "Replicate generation timed out after 6 minutes")
-                return
-
-        output_url = pred.get("output")
         if not output_url:
-            fail_job(job_id, "No output URL from Replicate")
+            fail_job(job_id, "No output from Replicate — generation may have failed silently")
             return
 
-        update_job_progress(job_id, 90, "Downloading transformed track…")
+        update_job_progress(job_id, 88, "Downloading transformed track…")
         output_path = workspace / "renders" / f"style-transform-{payload.mode.lower().replace(' ', '-')}.mp3"
-        with httpx.Client(timeout=120) as client:
-            audio_r = client.get(output_url if isinstance(output_url, str) else output_url[0])
+        with httpx.Client(timeout=120) as dl:
+            audio_r = dl.get(output_url)
             output_path.write_bytes(audio_r.content)
 
-        # Also write as style-preview.mp3 so existing download path works
-        import shutil
         shutil.copy2(output_path, workspace / "renders" / "style-preview.mp3")
 
         downloads = {
             "style_preview": f"/api/v1/files/{payload.file_id}/download/style-preview",
-            "transform": f"/api/v1/files/{payload.file_id}/download/style-preview",
+            "transform":     f"/api/v1/files/{payload.file_id}/download/style-preview",
         }
-        result = {
+        complete_job(JOBS[job_id], {
             "file_id": payload.file_id,
             "mode": payload.mode,
             "downloads": downloads,
-            "replicate_prediction_id": prediction_id,
-        }
-        complete_job(JOBS[job_id], result, f"{payload.mode} transform complete")
+        }, f"{payload.mode} transform complete")
     except Exception as e:
         fail_job(job_id, str(e))
 
