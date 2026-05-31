@@ -10,11 +10,9 @@ const nav = [
 ];
 
 const WORKFLOW_STEPS = [
-  { n: 1, label: 'Upload Song', desc: 'Drop your mixed track — beat and vocals already together. MP3, WAV or FLAC.' },
-  { n: 2, label: 'Clean', desc: 'Remove room noise, echo, de-essing and normalize levels in one click.' },
-  { n: 3, label: 'Mix', desc: 'Shape presence, reverb depth, stereo width and bus compression.' },
-  { n: 4, label: 'Master', desc: 'Choose your platform and genre style — Infinity hits the exact LUFS target.' },
-  { n: 5, label: 'Download', desc: 'Get your WAV, MP3 320k and 30-second preview ready to release.' },
+  { n: 1, label: 'Upload', desc: 'Drop your finished recording. Infinity cleans it in the background — noise removal, de-essing, and levelling happen automatically.' },
+  { n: 2, label: 'Shape your sound', desc: 'Pick a genre style, set the intensity, and hit preview. Hear how your track sounds before you commit.' },
+  { n: 3, label: 'Master & Download', desc: 'Choose your release platform and master. Get your WAV, MP3 320k, and 30-second preview — release-ready in minutes.' },
 ];
 
 const PLATFORMS = [
@@ -124,10 +122,9 @@ function HomePage({ go }) {
       <section className="hero">
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
           <span className="pill">Infinity · Beta</span>
-          <h1>Record. Clean.<br /><span>Mix. Master.</span></h1>
+          <h1>Upload. Shape.<br /><span>Master.</span></h1>
           <p className="lead">
-            Upload your beat, record or upload vocals, clean them, mix everything together,
-            master for your platform and download — all in one place.
+            Drop your track, pick your sound, and get a release-ready master in minutes — cleaned, shaped, and loud enough for any platform.
           </p>
           <div className="actions">
             <button className="primary"><Mic2 size={18} /> Open Studio</button>
@@ -171,7 +168,7 @@ function StudioPage() {
         <div className="section-head">
           <div>
             <p className="eyebrow">Infinity Studio</p>
-            <h2>Your complete vocal workflow</h2>
+            <h2>Three steps to release-ready</h2>
             <p className="muted wide">
               Five steps, one modal. Upload your finished track, clean it, shape the mix, master for your platform and download.
             </p>
