@@ -3,6 +3,8 @@ import json
 import shutil
 import threading
 from datetime import datetime
+import base64
+import httpx
 import aiofiles
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +12,20 @@ from fastapi.responses import FileResponse
 
 from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs, separate_stems_with_ffmpeg
 from .config import get_settings
-from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest
+from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress
+
+STYLE_PROMPTS = {
+    "Afrobeat": "Afrobeat music, warm low-mids, rhythmic guitar, talking drum, bass groove, African percussion",
+    "Trap": "Trap music, 808 bass, crisp hi-hats, dark atmospheric pads, heavy bass, modern hip hop",
+    "Drill": "UK Drill music, sliding 808, dark eerie melody, aggressive, heavy sub-bass",
+    "House": "House music, four-on-the-floor kick, deep bassline, soulful chords, electronic dance",
+    "Gospel": "Gospel music, Hammond organ chords, uplifting choir, warm bass, inspirational worship",
+    "Cinematic": "Cinematic orchestral music, strings ensemble, epic brass, emotional dramatic score",
+    "Soul": "Soul R&B music, warm Rhodes piano, smooth bass, groovy drums, soulful",
+    "Custom AI adaptive": "Modern pop music, clean mix, punchy drums, warm bass, radio-ready",
+    "Experimental": "Experimental electronic music, unique textures, creative sound design, avant-garde",
+}
 
 settings = get_settings()
 app = FastAPI(title="Infinity AI Audio Backend", version="10.0.0", description="FastAPI backend for Infinity AI music production.")
@@ -506,6 +520,122 @@ def _run_vocal_beat_mix(job_id: str, vocal_data: dict, payload: MixVocalBeatRequ
         }
         msg = "Mix complete" if mix_result.get("status") == "completed" else f"Mix failed: {mix_result.get('reason', mix_result.get('stderr', ''))}"
         complete_job(JOBS[job_id], result, msg)
+    except Exception as e:
+        fail_job(job_id, str(e))
+
+
+@app.post("/api/v1/audio/transform-style")
+def transform_style_endpoint(payload: TransformStyleRequest, background_tasks: BackgroundTasks):
+    file_data = get_file_or_404(payload.file_id)
+    if not settings.replicate_api_token:
+        raise HTTPException(status_code=503, detail="Replicate API token not configured")
+    job = create_job(JobType.transform_style, message="Style transform queued")
+    background_tasks.add_task(_run_transform_style, job.job_id, file_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "Style transform started"}
+
+def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRequest):
+    try:
+        update_job_progress(job_id, 5, "Preparing audio…")
+        workspace = Path(file_data["workspace"])
+        enhanced = workspace / "renders" / "enhanced.wav"
+        cleaned = workspace / "renders" / "mix-cleaned.wav"
+        input_path = enhanced if enhanced.exists() else (cleaned if cleaned.exists() else Path(file_data["stored_path"]))
+
+        # Extract first 30s as mp3 (small payload for Replicate)
+        import subprocess, tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tmp.close()
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(input_path), "-t", "30",
+            "-ar", "44100", "-ab", "128k", tmp.name
+        ], capture_output=True)
+
+        with open(tmp.name, "rb") as f:
+            melody_b64 = base64.b64encode(f.read()).decode()
+        melody_uri = f"data:audio/mp3;base64,{melody_b64}"
+
+        prompt = STYLE_PROMPTS.get(payload.mode, payload.mode)
+        if payload.strength < 40:
+            prompt += ", subtle, gentle transformation"
+        elif payload.strength > 75:
+            prompt += ", strong transformation, full genre character"
+
+        update_job_progress(job_id, 15, f"Sending to Replicate — {payload.mode} transform…")
+
+        headers = {
+            "Authorization": f"Token {settings.replicate_api_token}",
+            "Content-Type": "application/json",
+        }
+        create_body = {
+            "input": {
+                "model_version": "melody",
+                "prompt": prompt,
+                "melody": melody_uri,
+                "duration": payload.duration,
+                "output_format": "mp3",
+                "normalization_strategy": "peak",
+            }
+        }
+
+        with httpx.Client(timeout=300) as client:
+            r = client.post(
+                "https://api.replicate.com/v1/models/meta/musicgen/predictions",
+                headers=headers, json=create_body
+            )
+            if r.status_code not in (200, 201):
+                fail_job(job_id, f"Replicate API error {r.status_code}: {r.text[:300]}")
+                return
+            prediction = r.json()
+            prediction_id = prediction["id"]
+
+            update_job_progress(job_id, 25, "AI generating your transformed track…")
+            # Poll until done
+            for attempt in range(120):
+                import time
+                time.sleep(3)
+                poll = client.get(
+                    f"https://api.replicate.com/v1/predictions/{prediction_id}",
+                    headers=headers
+                )
+                pred = poll.json()
+                status = pred.get("status")
+                if status == "succeeded":
+                    break
+                if status == "failed":
+                    fail_job(job_id, f"Replicate generation failed: {pred.get('error', 'unknown')}")
+                    return
+                progress = min(85, 25 + attempt * 0.7)
+                update_job_progress(job_id, int(progress), "AI transforming your track…")
+            else:
+                fail_job(job_id, "Replicate generation timed out after 6 minutes")
+                return
+
+        output_url = pred.get("output")
+        if not output_url:
+            fail_job(job_id, "No output URL from Replicate")
+            return
+
+        update_job_progress(job_id, 90, "Downloading transformed track…")
+        output_path = workspace / "renders" / f"style-transform-{payload.mode.lower().replace(' ', '-')}.mp3"
+        with httpx.Client(timeout=120) as client:
+            audio_r = client.get(output_url if isinstance(output_url, str) else output_url[0])
+            output_path.write_bytes(audio_r.content)
+
+        # Also write as style-preview.mp3 so existing download path works
+        import shutil
+        shutil.copy2(output_path, workspace / "renders" / "style-preview.mp3")
+
+        downloads = {
+            "style_preview": f"/api/v1/files/{payload.file_id}/download/style-preview",
+            "transform": f"/api/v1/files/{payload.file_id}/download/style-preview",
+        }
+        result = {
+            "file_id": payload.file_id,
+            "mode": payload.mode,
+            "downloads": downloads,
+            "replicate_prediction_id": prediction_id,
+        }
+        complete_job(JOBS[job_id], result, f"{payload.mode} transform complete")
     except Exception as e:
         fail_job(job_id, str(e))
 
