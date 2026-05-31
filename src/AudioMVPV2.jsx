@@ -753,6 +753,13 @@ export default function AudioMVPV2({ open, onClose }) {
               <div style={{ color: 'rgba(245,248,255,.52)', fontSize: 13 }}>MP3 · WAV · FLAC · M4A · up to 250 MB</div>
             </div>
           </label>
+          {/* Auto-clean hint */}
+          {!songFile && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, padding: '9px 14px', borderRadius: 10, background: 'rgba(87,240,156,.05)', border: '1px solid rgba(87,240,156,.12)' }}>
+              <span style={{ color: '#57f09c', fontSize: 13 }}>✦</span>
+              <span style={{ fontSize: 12, color: 'rgba(245,248,255,.5)', lineHeight: 1.5 }}>Your mix gets cleaned automatically in the background — noise removal, de-essing, and levelling happen while you choose your style.</span>
+            </div>
+          )}
           {/* Project name */}
           <div style={{ marginTop: 16 }}>
             <label style={{ display: 'block', fontSize: 13, color: 'rgba(245,248,255,.55)', marginBottom: 6 }}>Song / project name (optional)</label>
@@ -1191,7 +1198,7 @@ export default function AudioMVPV2({ open, onClose }) {
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: backendOnline ? '#57f09c' : '#ffcf66', display: 'inline-block', flexShrink: 0 }} />
               </div>
               <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginTop: 2 }}>
-                {backendOnline ? 'Clean · Mix · Master' : 'Backend offline — check Railway'}
+                {backendOnline ? 'Clean · Shape · Master' : 'Studio connecting — please wait a moment'}
               </div>
             </div>
           </div>
