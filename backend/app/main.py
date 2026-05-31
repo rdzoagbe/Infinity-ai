@@ -337,6 +337,11 @@ def build_release_package(payload: AnalyzeRequest):
     return complete_job(job, result, "Release package ready")
 
 
+@app.get("/api/v1/files/{file_id}")
+def get_file_info(file_id: str):
+    file_data = get_file_or_404(file_id)
+    return {"file_id": file_data["file_id"], "filename": file_data["filename"], "size_bytes": file_data.get("size_bytes"), "metadata": file_data.get("metadata", {})}
+
 @app.get("/api/v1/files/{file_id}/download/{asset_type}")
 def download_file(file_id: str, asset_type: str):
     file_data = get_file_or_404(file_id)

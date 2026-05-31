@@ -218,4 +218,9 @@ export async function transformStyleOnBackend(fileId, mode, strength, duration =
   return parseResponse(response, 'Style transform failed');
 }
 
+export async function fetchFileInfo(fileId) {
+  const response = await fetch(`${API_BASE}/api/v1/files/${fileId}`);
+  return parseResponse(response, "File not found");
+}
+
 export { API_BASE };
