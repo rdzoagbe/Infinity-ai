@@ -12,6 +12,7 @@ import {
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
+  transformStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
@@ -361,6 +362,9 @@ export default function AudioMVPV2({ open, onClose }) {
 
   // UI state
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [transformJob, setTransformJob] = useState(null);
+  const [transformProgress, setTransformProgress] = useState(null);
+  const [transformProgressMsg, setTransformProgressMsg] = useState('');
 
   const songUrlRef = useRef('');
 
@@ -545,6 +549,29 @@ export default function AudioMVPV2({ open, onClose }) {
       setError(`Style preview failed: ${safeError(err)}`);
     } finally {
       setStylePreviewBusy(false); setStyleProgress(null);
+    }
+  };
+
+  const runTransform = async () => {
+    if (!songBackend?.file_id) return;
+    setStylePreviewBusy(true); setStyleProgress(0); setStyleProgressMsg(`Transforming to ${mode}…`);
+    setError(''); setTransformProgress(0);
+    try {
+      const init = await transformStyleOnBackend(songBackend.file_id, mode, strength);
+      const jobId = init?.job_id;
+      let job = init;
+      if (jobId) job = await pollUntilComplete(jobId, (p, msg) => {
+        setStyleProgress(p); setStyleProgressMsg(msg);
+        setTransformProgress(p);
+      });
+      setTransformJob(job);
+      const previewPath = job?.result?.downloads?.style_preview;
+      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+      setStatus(`${mode} transform ready — sounds right? Hit "Master it →"`);
+    } catch (err) {
+      setError(`Transform failed: ${safeError(err)}`);
+    } finally {
+      setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
     }
   };
 
@@ -857,13 +884,16 @@ export default function AudioMVPV2({ open, onClose }) {
             </div>
           )}
 
-          {/* Preview button */}
+          {/* Transform button */}
           <button className="primary" data-infinity-local-action="true"
             disabled={stylePreviewBusy || busy || !songBackend}
-            onClick={runShapePreview}
+            onClick={runTransform}
             style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: 'center', fontSize: 15, padding: '13px 0', marginBottom: 12 }}>
-            <Sparkles size={15} /> {stylePreviewBusy ? `Generating ${mode} preview…` : `Preview my sound in ${mode}`}
+            <Sparkles size={15} /> {stylePreviewBusy ? `Transforming to ${mode}…` : `Transform my sound to ${mode}`}
           </button>
+          <div style={{ fontSize: 11, color: 'rgba(245,248,255,.35)', textAlign: 'center', marginBottom: 12 }}>
+            AI generates a new version of your track in {mode} style — same melody, new sound
+          </div>
 
           <ProgressBar progress={enhanceProgress ?? styleProgress} label={enhanceProgress != null ? enhanceProgressMsg : styleProgressMsg} color="#b78aff" />
           <StatusBox message={status} error={error} busy={busy || stylePreviewBusy} />
