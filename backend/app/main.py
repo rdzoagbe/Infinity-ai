@@ -578,8 +578,21 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
         }
 
         with httpx.Client(timeout=300) as client:
+            # Resolve the latest version ID for the model (MusicGen requires versioned predictions)
+            version_id = None
+            for model_slug in ("meta/musicgen", "facebook/musicgen"):
+                mv = client.get(f"https://api.replicate.com/v1/models/{model_slug}", headers=headers)
+                if mv.status_code == 200:
+                    version_id = mv.json().get("latest_version", {}).get("id")
+                    if version_id:
+                        break
+            if not version_id:
+                fail_job(job_id, "Could not find MusicGen model on Replicate — check that the model is public")
+                return
+
+            create_body["version"] = version_id
             r = client.post(
-                "https://api.replicate.com/v1/models/meta/musicgen/predictions",
+                "https://api.replicate.com/v1/predictions",
                 headers=headers, json=create_body
             )
             if r.status_code not in (200, 201):
