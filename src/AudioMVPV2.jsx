@@ -57,10 +57,20 @@ const HIT_HARDER_TIPS = [
 const HISTORY_KEY = 'infinity_master_history';
 const TEMPLATES_KEY = 'infinity_mix_templates';
 const SESSION_KEY = 'infinity_studio_session_v1';
+const RECENT_FILES_KEY = 'infinity_recent_files_v1';
 
 function loadSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
 function saveSession(data) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch {} }
 function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch {} }
+
+function loadRecentFiles() { try { return JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || '[]'); } catch { return []; } }
+function addRecentFile(entry) {
+  try {
+    const list = loadRecentFiles().filter(f => f.file_id !== entry.file_id);
+    list.unshift(entry);
+    localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list.slice(0, 10)));
+  } catch {}
+}
 
 function loadHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
@@ -302,6 +312,7 @@ export default function AudioMVPV2({ open, onClose }) {
   const [songBackend, setSongBackend] = useState(null);
   const [songUrl, setSongUrl] = useState('');
   const [analysisData, setAnalysisData] = useState(null);
+  const [recentFiles, setRecentFiles] = useState(() => loadRecentFiles());
 
   // clean
   const [cleanJob, setCleanJob] = useState(null);
@@ -426,6 +437,15 @@ export default function AudioMVPV2({ open, onClose }) {
     try {
       const res = await uploadAudioToBackend(file);
       setSongBackend(res.file);
+      const fileRecord = {
+        file_id: res.file.file_id,
+        filename: file.name,
+        name: file.name,
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+      };
+      addRecentFile(fileRecord);
+      setRecentFiles(loadRecentFiles());
       window.dispatchEvent(new CustomEvent('infinity:project-file', {
         detail: {
           id: res.file.file_id,
@@ -722,6 +742,15 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  const loadRecentFile = (f) => {
+    setSongBackend({ file_id: f.file_id, filename: f.filename || f.name });
+    setRestoredName(f.filename || f.name || 'track');
+    setSongFile(null); setSongUrl('');
+    setProjectName(prev => prev || (f.filename || f.name || '').replace(/\.[^.]+$/, ''));
+    saveSession({ songBackend: { file_id: f.file_id, filename: f.filename || f.name }, savedAt: new Date().toISOString() });
+    setError(''); setStatus('');
+  };
+
   const resetAll = () => {
     clearSession();
     setStep(1);
@@ -772,19 +801,39 @@ export default function AudioMVPV2({ open, onClose }) {
           <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
             Upload your finished recording — beat and vocals already together. MP3 or WAV recommended.
           </p>
+          {/* Recent files list — shown when no file is loaded yet */}
+          {!songFile && !songBackend && recentFiles.length > 0 && (
+            <div style={{ marginBottom: 16, border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,.03)', fontSize: 12, fontWeight: 700, color: 'rgba(245,248,255,.5)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                Your uploaded songs
+              </div>
+              {recentFiles.map((f, i) => (
+                <div key={f.file_id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.05)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.filename || f.name || 'Audio file'}</div>
+                    <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginTop: 2 }}>{formatBytes(f.size)} · {f.uploadedAt ? new Date(f.uploadedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                  </div>
+                  <button type="button" className="primary" data-infinity-local-action="true"
+                    onClick={() => loadRecentFile(f)}
+                    style={{ fontSize: 12, padding: '7px 14px', flexShrink: 0 }}>
+                    Load →
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {/* Restored session banner */}
           {restoredName && !songFile && (
-            <div style={{ ...cardGreen, marginBottom: 12, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ ...cardGreen, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
-                <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 4 }}>↩ Last session restored</div>
-                <div style={{ color: 'rgba(245,248,255,.6)', fontSize: 13 }}>{restoredName} — ready to continue from where you left off</div>
-                <div style={{ color: 'rgba(245,248,255,.4)', fontSize: 12, marginTop: 4 }}>You can go straight to Step 2, or drop a new file below to start fresh.</div>
+                <div style={{ color: '#57f09c', fontWeight: 800, marginBottom: 4 }}>↩ Loaded: {restoredName}</div>
+                <div style={{ color: 'rgba(245,248,255,.5)', fontSize: 12 }}>Ready to continue — go straight to Step 2, or pick a different song above.</div>
               </div>
               <button
                 type="button" data-infinity-local-action="true"
                 onClick={() => { setSongBackend(null); setRestoredName(''); clearSession(); }}
-                style={{ background: 'none', border: 'none', color: 'rgba(245,248,255,.38)', cursor: 'pointer', padding: 0, flexShrink: 0, fontSize: 18, lineHeight: 1 }}
-                title="Clear restored session"
+                style={{ background: 'none', border: 'none', color: 'rgba(245,248,255,.38)', cursor: 'pointer', padding: 0, flexShrink: 0, fontSize: 20, lineHeight: 1 }}
+                title="Clear loaded song"
               >×</button>
             </div>
           )}

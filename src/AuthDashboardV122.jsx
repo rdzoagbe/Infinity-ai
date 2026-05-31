@@ -27,6 +27,27 @@ function releasePackages(project) { return assets(project).filter(isRelease); }
 function exportPackages(project) { const direct = Array.isArray(project?.analysis?.export_packages) ? project.analysis.export_packages : []; return [...direct, ...assets(project).filter(isExport)]; }
 function resolveAssetUrl(url) { if (!url) return ''; return url.startsWith('http') || url.startsWith('blob:') ? url : backendUrl(url); }
 
+function openFileInStudio(file) {
+  try {
+    localStorage.setItem('infinity_studio_session_v1', JSON.stringify({
+      songBackend: { file_id: file.file_id || file.id, filename: file.name || file.filename },
+      savedAt: new Date().toISOString(),
+    }));
+  } catch {}
+  window.dispatchEvent(new CustomEvent('infinity:open-studio'));
+}
+
+function AudioPlayer({ url, label }) {
+  const resolved = resolveAssetUrl(url);
+  if (!resolved) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {label && <div style={{ fontSize: 11, color: 'rgba(245,248,255,.4)', marginBottom: 4 }}>{label}</div>}
+      <audio controls src={resolved} style={{ width: '100%', height: 32, borderRadius: 8 }} />
+    </div>
+  );
+}
+
 function Badge({ children }) { return <span className="pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{children}</span>; }
 function ModeBadge({ cloudMode }) { return <Badge>{cloudMode ? <Cloud size={14} /> : <Lock size={14} />}{cloudMode ? 'Cloud Mode' : 'Local Mode'}</Badge>; }
 function StateBadge({ state }) { const color = state === 'Available' ? '#57f09c' : state === 'Beta' ? '#55e9ff' : '#ffcf66'; return <span className="pill" style={{ color, borderColor: `${color}55`, background: `${color}18` }}>{state}</span>; }
@@ -106,12 +127,19 @@ function ProjectLibraryPanel({ project, compact = false }) {
       <div>
         {files.length === 0 && <p className="muted">No files yet — upload a track in the studio.</p>}
         {files.map((f, i) => (
-          <div key={f.id || i} style={row}>
-            <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div key={f.id || i} style={{ ...row, alignItems: 'center' }}>
+            <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>{f.name || f.filename || 'Audio file'}</div>
               <div style={meta}>{formatBytes(f.size || f.size_bytes)} · {formatDate(f.linked_at)}</div>
             </div>
+            {(f.file_id || f.id) && (
+              <button type="button" className="primary" data-infinity-local-action="true"
+                onClick={() => openFileInStudio(f)}
+                style={{ fontSize: 12, padding: '7px 13px', flexShrink: 0 }}>
+                Continue →
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -119,31 +147,39 @@ function ProjectLibraryPanel({ project, compact = false }) {
     if (drillTab === 'sounds') return (
       <div>
         {generated.length === 0 && <p className="muted">No generated sounds yet.</p>}
-        {generated.map((s, i) => (
-          <div key={s.id || i} style={row}>
-            <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
-              <div style={meta}>{s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
-              <AssetLinks asset={s} />
+        {generated.map((s, i) => {
+          const playUrl = resolveAssetUrl(s.preview_url || s.download_url || s.assets?.[0]?.download_url);
+          return (
+            <div key={s.id || i} style={row}>
+              <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
+                <div style={meta}>{s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
+                {playUrl && <audio controls src={playUrl} style={{ width: '100%', marginTop: 8, height: 32 }} />}
+                <AssetLinks asset={s} />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
     if (drillTab === 'masters') return (
       <div>
         {masters.length === 0 && <p className="muted">No masters yet — complete the Master step in the studio.</p>}
-        {masters.map((m, i) => (
-          <div key={m.id || i} style={row}>
-            <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
-              <div style={meta}>{m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
-              <AssetLinks asset={m} />
+        {masters.map((m, i) => {
+          const playUrl = resolveAssetUrl(m.preview_url || m.download_url);
+          return (
+            <div key={m.id || i} style={row}>
+              <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
+                <div style={meta}>{m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
+                {playUrl && <audio controls src={playUrl} style={{ width: '100%', marginTop: 8, height: 32 }} />}
+                <AssetLinks asset={m} />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
     if (drillTab === 'releases') return (
@@ -218,12 +254,19 @@ function DrillPanel({ tab, projects, onOpenProject }) {
       <p className="eyebrow" style={{ marginBottom: 12 }}>Uploaded files across all projects</p>
       {allFiles.length === 0 && <p className="muted">No files yet — upload a track in the studio to get started.</p>}
       {allFiles.map((f, i) => (
-        <div key={f.id || i} style={row}>
-          <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0, marginTop: 2 }} />
+        <div key={f.id || i} style={{ ...row, alignItems: 'center' }}>
+          <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{f.name || f.filename || 'Audio file'}</div>
             <div style={meta}>{f._project} · {formatBytes(f.size || f.size_bytes)} · {formatDate(f.linked_at)}</div>
           </div>
+          {(f.file_id || f.id) && (
+            <button type="button" className="primary" data-infinity-local-action="true"
+              onClick={() => openFileInStudio(f)}
+              style={{ fontSize: 12, padding: '7px 13px', flexShrink: 0 }}>
+              Continue →
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -233,16 +276,20 @@ function DrillPanel({ tab, projects, onOpenProject }) {
     <div>
       <p className="eyebrow" style={{ marginBottom: 12 }}>Mastered versions across all projects</p>
       {allMasters.length === 0 && <p className="muted">No masters yet — complete the Master step in the studio to see versions here.</p>}
-      {allMasters.map((m, i) => (
-        <div key={m.id || i} style={row}>
-          <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
-            <div style={meta}>{m._project} · {m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
-            <AssetLinks asset={m} />
+      {allMasters.map((m, i) => {
+        const playUrl = resolveAssetUrl(m.preview_url || m.download_url);
+        return (
+          <div key={m.id || i} style={row}>
+            <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
+              <div style={meta}>{m._project} · {m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
+              {playUrl && <audio controls src={playUrl} style={{ width: '100%', marginTop: 8, height: 32 }} />}
+              <AssetLinks asset={m} />
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -250,16 +297,20 @@ function DrillPanel({ tab, projects, onOpenProject }) {
     <div>
       <p className="eyebrow" style={{ marginBottom: 12 }}>Generated sounds across all projects</p>
       {allSounds.length === 0 && <p className="muted">No generated sounds yet — use the AI Sound Generator to create WAV assets.</p>}
-      {allSounds.map((s, i) => (
-        <div key={s.id || i} style={row}>
-          <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
-            <div style={meta}>{s._project} · {s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
-            <AssetLinks asset={s} />
+      {allSounds.map((s, i) => {
+        const playUrl = resolveAssetUrl(s.preview_url || s.download_url || s.assets?.[0]?.download_url);
+        return (
+          <div key={s.id || i} style={row}>
+            <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
+              <div style={meta}>{s._project} · {s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
+              {playUrl && <audio controls src={playUrl} style={{ width: '100%', marginTop: 8, height: 32 }} />}
+              <AssetLinks asset={s} />
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
