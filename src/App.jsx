@@ -29,6 +29,12 @@ export default function InfinityActionRouter() {
   const [audioMvpOpen, setAudioMvpOpen] = useState(false);
 
   useEffect(() => {
+    const openHandler = () => setAudioMvpOpen(true);
+    window.addEventListener('infinity:open-studio', openHandler);
+    return () => window.removeEventListener('infinity:open-studio', openHandler);
+  }, []);
+
+  useEffect(() => {
     const handler = (event) => {
       const button = event.target.closest?.('button');
       if (!button) return;

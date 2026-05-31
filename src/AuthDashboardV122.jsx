@@ -223,8 +223,8 @@ function StudioShell({ children, onBack, project, cloudMode }) {
   return (
     <>
       {children}
-      {/* Dark scrim so the main site doesn't show through */}
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9993, background: 'rgba(9,11,20,.82)', backdropFilter: 'blur(3px)' }} />
+      {/* Dark scrim — visual only, doesn't block clicks */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9993, background: 'rgba(9,11,20,.82)', backdropFilter: 'blur(3px)', pointerEvents: 'none' }} />
       {/* Top-left nav bar */}
       <div data-infinity-auth="true" style={{ position: 'fixed', left: 18, top: 18, zIndex: 9996, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="secondary" onClick={onBack}>← Dashboard</button>
@@ -392,7 +392,7 @@ export default function AuthDashboardV122({ children }) {
 
   const createProject = async (project) => { if (cloudMode) { const row = await createCloudProject({ user_id: profile.id, title: project.title, artist: project.artist, type: project.type, genre: project.genre, status: project.status, notes: project.notes, analysis: project.analysis, files: project.files }); const normalized = normalizeProject(row); setProjects((current) => [normalized, ...current]); setShowCreate(false); setCurrentProject(normalized); setStudioOpen(true); return; } setProjects((current) => [project, ...current]); setShowCreate(false); setCurrentProject(project); setStudioOpen(true); };
   const logout = async () => { if (cloudMode) await signOutSupabase().catch(() => {}); localStorage.removeItem(STORAGE_KEYS.session); setProfile(null); setStudioOpen(false); setCurrentProject(null); setProjects(loadJson(STORAGE_KEYS.projects, [])); };
-  const openProject = (project) => { const updated = { ...project, updatedAt: new Date().toISOString() }; if (!cloudMode) setProjects((current) => current.map((item) => (item.id === project.id ? updated : item))); setCurrentProject(updated); setStudioOpen(true); };
+  const openProject = (project) => { const updated = { ...project, updatedAt: new Date().toISOString() }; if (!cloudMode) setProjects((current) => current.map((item) => (item.id === project.id ? updated : item))); setCurrentProject(updated); setStudioOpen(true); window.dispatchEvent(new CustomEvent('infinity:open-studio')); };
   const deleteProject = async (id) => { if (cloudMode) await deleteCloudProject(id); setProjects((current) => current.filter((project) => project.id !== id)); };
   const refreshProjects = async () => { if (cloudMode && profile?.id) { setLoading(true); const rows = await listCloudProjects(profile.id); setProjects(rows.map(normalizeProject)); setLoading(false); } else { setProjects(loadJson(STORAGE_KEYS.projects, [])); } };
 
