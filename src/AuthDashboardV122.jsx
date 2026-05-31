@@ -477,6 +477,12 @@ export default function AuthDashboardV122({ children }) {
   const projectsRef = useRef(projects);
   useEffect(() => { currentProjectRef.current = currentProject; }, [currentProject]);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
+  useEffect(() => {
+    const handler = () => setStudioOpen(false);
+    window.addEventListener('infinity:close-studio', handler);
+    return () => window.removeEventListener('infinity:close-studio', handler);
+  }, []);
+
   const replaceProject = (updated) => { const normalized = normalizeProject(updated); setCurrentProject((current) => current?.id === normalized.id ? normalized : current); setProjects((current) => current.map((project) => project.id === normalized.id ? normalized : project)); return normalized; };
   const localUpdateProject = (projectId, updater) => { setProjects((current) => { const next = current.map((project) => { if (project.id !== projectId) return project; const updated = { ...updater(project), updatedAt: new Date().toISOString() }; setCurrentProject(updated); return updated; }); saveJson(STORAGE_KEYS.projects, next); return next; }); };
 
@@ -499,6 +505,6 @@ export default function AuthDashboardV122({ children }) {
   const refreshProjects = async () => { if (cloudMode && profile?.id) { setLoading(true); const rows = await listCloudProjects(profile.id); setProjects(rows.map(normalizeProject)); setLoading(false); } else { setProjects(loadJson(STORAGE_KEYS.projects, [])); } };
 
   if (!profile) return <StartPrivateSession onLogin={setProfile} />;
-  if (studioOpen) return <StudioShell onBack={() => { setStudioOpen(false); refreshProjects().catch(() => {}); }} project={currentProject} cloudMode={cloudMode}>{children}</StudioShell>;
+  if (studioOpen) return <StudioShell onBack={() => { setStudioOpen(false); window.dispatchEvent(new CustomEvent('infinity:close-studio')); refreshProjects().catch(() => {}); }} project={currentProject} cloudMode={cloudMode}>{children}</StudioShell>;
   return <><Dashboard profile={profile} projects={projects} onCreate={() => setShowCreate(true)} onLogout={logout} onOpenProject={openProject} onDeleteProject={deleteProject} cloudMode={cloudMode} loading={loading} error={error} />{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} cloudMode={cloudMode} /> : null}</>;
 }
