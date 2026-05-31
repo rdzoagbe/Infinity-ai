@@ -12,6 +12,7 @@ import {
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
+  fetchFileInfo,
   transformStyleOnBackend,
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
@@ -414,7 +415,37 @@ export default function AudioMVPV2({ open, onClose }) {
 
   if (!open) return null;
 
-  const go = (n) => { setError(''); setStatus(''); setStep(n); };
+  const expireSession = (badFileId) => {
+    clearSession();
+    if (badFileId) {
+      try {
+        const updated = loadRecentFiles().filter(f => f.file_id !== badFileId);
+        localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(updated));
+        setRecentFiles(updated);
+      } catch {}
+    }
+    setSongBackend(null); setSongFile(null); setSongUrl(''); setRestoredName('');
+    setStep(1);
+    setError('Session expired — the server restarted. Please re-upload your track.');
+  };
+
+  const go = async (n) => {
+    setError(''); setStatus('');
+    if (n === 2 && songBackend?.file_id && !songFile) {
+      // Validate the restored file still exists on the backend
+      setBusy(true); setStatus('Checking session…');
+      try {
+        await fetchFileInfo(songBackend.file_id);
+        setBusy(false); setStatus('');
+        setStep(n);
+      } catch {
+        setBusy(false);
+        expireSession(songBackend.file_id);
+      }
+      return;
+    }
+    setStep(n);
+  };
 
   const handleShare = async (url, label) => {
     if (!url) return;
@@ -613,7 +644,12 @@ export default function AudioMVPV2({ open, onClose }) {
       if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
       setStatus(`${mode} transform ready — sounds right? Hit "Master it →"`);
     } catch (err) {
-      setError(`Transform failed: ${safeError(err)}`);
+      const msg = safeError(err);
+      if (msg.toLowerCase().includes('file not found')) {
+        expireSession(songBackend?.file_id);
+      } else {
+        setError(`Transform failed: ${msg}`);
+      }
     } finally {
       setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
     }
