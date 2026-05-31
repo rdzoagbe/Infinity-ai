@@ -88,13 +88,115 @@ function ReleasePackageCard({ pkg }) {
 }
 
 function ProjectLibraryPanel({ project, compact = false }) {
+  const [drillTab, setDrillTab] = useState(null);
   const files = Array.isArray(project?.files) ? project.files : [];
   const generated = generatedSounds(project);
   const masters = masteredVersions(project);
   const exports = exportPackages(project);
   const releases = releasePackages(project);
   if (!project) return null;
-  return <section data-infinity-auth="true" style={{ ...panel, padding: compact ? 14 : 20 }}><div className="section-head" style={{ marginBottom: 14 }}><div><p className="eyebrow">v12.2 Project library</p><h2 style={{ margin: '4px 0 0' }}>{project.title}</h2><p className="muted" style={{ marginTop: 6 }}>{project.artist} - {project.genre} - {project.status}</p></div></div><div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', marginBottom: 14 }}><Stat label="Files" value={files.length} icon={FileAudio} /><Stat label="Sounds" value={generated.length} icon={Sparkles} /><Stat label="Masters" value={masters.length} icon={Music2} /><Stat label="Releases" value={releases.length} icon={Rocket} /><Stat label="Exports" value={exports.length} icon={Library} /></div><div className="three" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}><div className="card" style={{ boxShadow: 'none' }}><h3><FileAudio size={17} /> Uploaded files</h3>{files.length ? files.slice(0, 5).map((file) => <p key={file.id || file.file_id || file.name} className="muted" style={{ margin: '8px 0' }}>{file.name || file.filename || 'Audio file'} - {formatBytes(file.size || file.size_bytes)}</p>) : <p className="muted">No project files saved yet. Upload from Mix & Master.</p>}{files.length > 0 && (<p className="muted" style={{ marginTop: 8, fontSize: 12 }}>Open the studio to separate stems from any uploaded file.</p>)}</div><div className="card" style={{ boxShadow: 'none' }}><h3><Music2 size={17} /> Mastered versions</h3>{masters.length ? masters.slice(0, 5).map((master) => <div key={master.id || master.name} style={{ marginBottom: 12 }}><p className="muted" style={{ margin: '8px 0' }}><b style={{ color: '#f5f8ff' }}>{master.name || 'Mastered version'}</b><br />{master.mode || 'Custom'} · {master.strength ?? '-'}% · {formatDate(master.created_at || master.linked_at)}</p><AssetLinks asset={master} /></div>) : <p className="muted">No mastered version yet. Use Render Master in Mix & Master.</p>}</div><div className="card" style={{ boxShadow: 'none' }}><h3><Rocket size={17} /> Release packages</h3>{releases.length ? releases.slice(0, 5).map((pkg) => <ReleasePackageCard key={pkg.id || pkg.name} pkg={pkg} />) : <><p className="muted" style={{ marginBottom: 10 }}>Bundle your master files with metadata for distribution.</p><button className="secondary" style={{ fontSize: 12, padding: '8px 12px' }} onClick={() => alert('Open the studio, master your track, then come back — the release package will appear here automatically.')}>How it works</button></>}</div><div className="card" style={{ boxShadow: 'none' }}><h3><Sparkles size={17} /> Generated sounds</h3>{generated.length ? generated.slice(0, 5).map((sound) => <div key={sound.id || sound.asset_id || sound.name} style={{ marginBottom: 12 }}><p className="muted" style={{ margin: '8px 0' }}>{sound.name || sound.prompt || 'Generated WAV'} · {sound.asset_count || sound.assets?.length || 1} asset(s)</p><AssetLinks asset={sound} /></div>) : <p className="muted">No generated sounds saved yet. Use AI Sound Generator.</p>}</div></div></section>;
+
+  const toggle = (tab) => setDrillTab(prev => prev === tab ? null : tab);
+
+  const row = { padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' };
+  const meta = { fontSize: 12, color: 'rgba(245,248,255,.45)', marginTop: 2 };
+
+  const renderDrill = () => {
+    if (drillTab === 'files') return (
+      <div>
+        {files.length === 0 && <p className="muted">No files yet — upload a track in the studio.</p>}
+        {files.map((f, i) => (
+          <div key={f.id || i} style={row}>
+            <FileAudio size={15} color="#55e9ff" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{f.name || f.filename || 'Audio file'}</div>
+              <div style={meta}>{formatBytes(f.size || f.size_bytes)} · {formatDate(f.linked_at)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+    if (drillTab === 'sounds') return (
+      <div>
+        {generated.length === 0 && <p className="muted">No generated sounds yet.</p>}
+        {generated.map((s, i) => (
+          <div key={s.id || i} style={row}>
+            <Sparkles size={15} color="#57f09c" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name || s.prompt || 'Generated sound'}</div>
+              <div style={meta}>{s.genre || ''} · {s.assets?.length || 1} asset(s) · {formatDate(s.created_at || s.linked_at)}</div>
+              <AssetLinks asset={s} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+    if (drillTab === 'masters') return (
+      <div>
+        {masters.length === 0 && <p className="muted">No masters yet — complete the Master step in the studio.</p>}
+        {masters.map((m, i) => (
+          <div key={m.id || i} style={row}>
+            <Music2 size={15} color="#b78aff" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name || 'Mastered version'}</div>
+              <div style={meta}>{m.mode || 'Custom'} · {m.platform || ''} · {m.strength ?? '-'}% · {formatDate(m.created_at || m.linked_at)}</div>
+              <AssetLinks asset={m} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+    if (drillTab === 'releases') return (
+      <div>
+        {releases.length === 0 && <p className="muted">No release packages yet. Master your track first.</p>}
+        {releases.map((r, i) => <ReleasePackageCard key={r.id || i} pkg={r} />)}
+      </div>
+    );
+    if (drillTab === 'exports') return (
+      <div>
+        {exports.length === 0 && <p className="muted">No exports yet.</p>}
+        {exports.map((e, i) => (
+          <div key={e.id || i} style={row}>
+            <Library size={15} color="#ffcf66" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{e.name || 'Export package'}</div>
+              <div style={meta}>{formatDate(e.created_at || e.linked_at)}</div>
+              <AssetLinks asset={e} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+    return null;
+  };
+
+  return (
+    <section data-infinity-auth="true" style={{ ...panel, padding: compact ? 14 : 20 }}>
+      <div className="section-head" style={{ marginBottom: 14 }}>
+        <div>
+          <p className="eyebrow">v12.2 Project library</p>
+          <h2 style={{ margin: '4px 0 0' }}>{project.title}</h2>
+          <p className="muted" style={{ marginTop: 6 }}>{project.artist} - {project.genre} - {project.status}</p>
+        </div>
+      </div>
+      <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', marginBottom: 14 }}>
+        <Stat label="Files"    value={files.length}     icon={FileAudio} active={drillTab === 'files'}    onClick={() => toggle('files')}    action={files.length ? 'View' : 'Upload'}     hint="Click to browse" color="#55e9ff" />
+        <Stat label="Sounds"   value={generated.length} icon={Sparkles}  active={drillTab === 'sounds'}   onClick={() => toggle('sounds')}   action={generated.length ? 'Play' : 'Generate'} hint="Click to view"  color="#57f09c" />
+        <Stat label="Masters"  value={masters.length}   icon={Music2}    active={drillTab === 'masters'}  onClick={() => toggle('masters')}  action={masters.length ? 'Download' : 'Master'}  hint="Click to view"  color="#b78aff" />
+        <Stat label="Releases" value={releases.length}  icon={Rocket}    active={drillTab === 'releases'} onClick={() => toggle('releases')} action={releases.length ? 'View' : 'Release'}   hint="Click to view"  color="#ffcf66" />
+        <Stat label="Exports"  value={exports.length}   icon={Library}   active={drillTab === 'exports'}  onClick={() => toggle('exports')}  action={exports.length ? 'View' : 'Export'}     hint="Click to view"  color="#55e9ff" />
+      </div>
+      {drillTab && (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14, marginTop: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <p className="eyebrow" style={{ margin: 0 }}>{drillTab}</p>
+            <button type="button" className="secondary" data-infinity-local-action="true" onClick={() => setDrillTab(null)} style={{ fontSize: 11, padding: '4px 10px' }}>✕ Close</button>
+          </div>
+          {renderDrill()}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ProjectCard({ project, onOpen, onDelete }) {
