@@ -574,15 +574,16 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
 
         update_job_progress(job_id, 20, "AI is generating your transformed track — this takes ~1 min…")
 
+        # Pinned version hash; input_audio = melody conditioning, model_version must be *-melody-* variant
         output = client.run(
-            "meta/musicgen",
+            "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
             input={
-                "model_version": "melody",
+                "model_version": "melody-large",
                 "prompt": prompt,
-                "melody": melody_uri,
+                "input_audio": melody_uri,
                 "duration": payload.duration,
                 "output_format": "mp3",
-                "normalization_strategy": "peak",
+                "normalization_strategy": "loudness",
             },
         )
 
