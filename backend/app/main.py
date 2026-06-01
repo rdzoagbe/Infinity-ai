@@ -132,8 +132,17 @@ def master_audio(payload: ProcessRequest, background_tasks: BackgroundTasks):
 def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
     try:
         update_job_progress(job_id, 10, "Loading audio file…")
-        input_path = Path(file_data["stored_path"])
-        output_dir = Path(file_data["workspace"]) / "renders"
+        workspace   = Path(file_data["workspace"])
+        renders     = workspace / "renders"
+        style_prev  = renders / "style-preview.mp3"
+        enhanced    = renders / "enhanced.wav"
+        cleaned     = renders / "mix-cleaned.wav"
+        # Prefer style-transformed output → enhanced → cleaned → original
+        input_path  = (style_prev if style_prev.exists()
+                       else enhanced if enhanced.exists()
+                       else cleaned  if cleaned.exists()
+                       else Path(file_data["stored_path"]))
+        output_dir = renders
         update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ…")
         render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq)
         update_job_progress(job_id, 90, "Encoding WAV + MP3…")
@@ -541,23 +550,37 @@ def transform_style_endpoint(payload: TransformStyleRequest, background_tasks: B
 def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRequest):
     try:
         import replicate as replicate_sdk
-        import subprocess, tempfile, time
+        import subprocess, tempfile
 
-        update_job_progress(job_id, 5, "Preparing audio…")
+        update_job_progress(job_id, 5, "Separating vocals…")
         workspace = Path(file_data["workspace"])
-        enhanced = workspace / "renders" / "enhanced.wav"
-        cleaned  = workspace / "renders" / "mix-cleaned.wav"
-        input_path = enhanced if enhanced.exists() else (cleaned if cleaned.exists() else Path(file_data["stored_path"]))
+        renders   = workspace / "renders"
+        stems_dir = workspace / "stems"
 
-        # Extract first 30 s as MP3 for Replicate melody input
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-        tmp.close()
+        enhanced = renders / "enhanced.wav"
+        cleaned  = renders / "mix-cleaned.wav"
+        source   = enhanced if enhanced.exists() else (cleaned if cleaned.exists() else Path(file_data["stored_path"]))
+
+        # Separate vocals so we can preserve them over the transformed beat
+        vocal_path = None
+        sep = separate_stems_with_ffmpeg(source, stems_dir)
+        if sep.get("status") == "completed":
+            vp = Path(sep["vocals"]["path"])
+            if vp.exists():
+                vocal_path = vp
+
+        # Use instrumental stem for Replicate if separation succeeded, else full mix
+        melody_source = Path(sep["instrumental"]["path"]) if sep.get("status") == "completed" else source
+
+        update_job_progress(job_id, 12, "Preparing instrumental for AI transform…")
+        tmp_mp3 = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        tmp_mp3.close()
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(input_path), "-t", str(payload.duration),
-             "-ar", "44100", "-ab", "128k", tmp.name],
+            ["ffmpeg", "-y", "-i", str(melody_source), "-t", str(payload.duration),
+             "-ar", "44100", "-ab", "192k", tmp_mp3.name],
             capture_output=True,
         )
-        with open(tmp.name, "rb") as f:
+        with open(tmp_mp3.name, "rb") as f:
             melody_b64 = base64.b64encode(f.read()).decode()
         melody_uri = f"data:audio/mp3;base64,{melody_b64}"
 
@@ -567,14 +590,10 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
         elif payload.strength > 75:
             prompt += ", strong transformation, full genre character"
 
-        update_job_progress(job_id, 15, f"Sending to Replicate — {payload.mode} transform…")
-
-        # Use the official Replicate SDK so version resolution is handled automatically
+        update_job_progress(job_id, 18, f"Sending to Replicate — {payload.mode} transform…")
         client = replicate_sdk.Client(api_token=settings.replicate_api_token)
+        update_job_progress(job_id, 22, "AI is generating your transformed track — this takes ~1 min…")
 
-        update_job_progress(job_id, 20, "AI is generating your transformed track — this takes ~1 min…")
-
-        # Pinned version hash; input_audio = melody conditioning, model_version must be *-melody-* variant
         output = client.run(
             "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
             input={
@@ -582,26 +601,52 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
                 "prompt": prompt,
                 "input_audio": melody_uri,
                 "duration": payload.duration,
-                "output_format": "mp3",
+                "output_format": "wav",
                 "normalization_strategy": "loudness",
             },
         )
 
-        # output is a FileOutput or list — get the URL
         output_url = output[0] if isinstance(output, (list, tuple)) else output
         output_url = str(output_url)
-
         if not output_url:
             fail_job(job_id, "No output from Replicate — generation may have failed silently")
             return
 
-        update_job_progress(job_id, 88, "Downloading transformed track…")
-        output_path = workspace / "renders" / f"style-transform-{payload.mode.lower().replace(' ', '-')}.mp3"
+        update_job_progress(job_id, 82, "Downloading transformed track…")
+        raw_wav = renders / f"style-transform-raw-{payload.mode.lower().replace(' ', '-')}.wav"
         with httpx.Client(timeout=120) as dl:
-            audio_r = dl.get(output_url)
-            output_path.write_bytes(audio_r.content)
+            raw_wav.write_bytes(dl.get(output_url).content)
 
-        shutil.copy2(output_path, workspace / "renders" / "style-preview.mp3")
+        # Re-encode to high-quality WAV then encode final MP3 at 320kbps
+        update_job_progress(job_id, 88, "Mixing vocals back and encoding…")
+        final_wav = renders / f"style-transform-{payload.mode.lower().replace(' ', '-')}.wav"
+        if vocal_path and vocal_path.exists():
+            # Mix original vocals over the transformed beat
+            mix_result = mix_vocal_beat_with_ffmpeg(
+                vocal_path, raw_wav, renders,
+                vocal_gain=1.0, beat_gain=0.9,
+                vocal_presence_boost=True, beat_stereo_width=1.3,
+                bus_compress=True, reverb_amount=0.1,
+            )
+            mixed_wav = renders / "mixed.wav"
+            if mix_result.get("status") == "completed" and mixed_wav.exists():
+                shutil.copy2(mixed_wav, final_wav)
+            else:
+                shutil.copy2(raw_wav, final_wav)
+        else:
+            shutil.copy2(raw_wav, final_wav)
+
+        # Encode to 320kbps MP3
+        final_mp3 = renders / f"style-transform-{payload.mode.lower().replace(' ', '-')}.mp3"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(final_wav),
+             "-codec:a", "libmp3lame", "-b:a", "320k", "-ar", "44100", str(final_mp3)],
+            capture_output=True,
+        )
+        if not final_mp3.exists():
+            shutil.copy2(final_wav, final_mp3)
+
+        shutil.copy2(final_mp3, renders / "style-preview.mp3")
 
         downloads = {
             "style_preview": f"/api/v1/files/{payload.file_id}/download/style-preview",
@@ -611,7 +656,7 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
             "file_id": payload.file_id,
             "mode": payload.mode,
             "downloads": downloads,
-        }, f"{payload.mode} transform complete")
+        }, f"{payload.mode} transform complete — vocals preserved")
     except Exception as e:
         fail_job(job_id, str(e))
 
