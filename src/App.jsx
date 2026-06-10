@@ -193,6 +193,9 @@ function EliteAnalysisPanel() {
 
   return (
     <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(500px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 36px)', overflow: 'auto', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
+
+  return (
+    <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(420px, calc(100vw - 24px))', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
         <div>
           <div style={{ color: '#55e9ff', fontSize: 11, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 4 }}>Elite Analysis Report</div>
