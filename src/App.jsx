@@ -34,6 +34,30 @@ function readinessScore(analysis, flags) {
   return Math.max(45, Math.min(99, score));
 }
 
+function scoreBand(score) {
+  if (score >= 90) return 'Release-ready';
+  if (score >= 78) return 'Close to release';
+  if (score >= 65) return 'Needs mix/master polish';
+  return 'Needs engineering review';
+}
+
+function lufsScore(analysis, target = -10) {
+  const lufs = Number(analysis.integrated_lufs);
+  if (!Number.isFinite(lufs)) return 72;
+  const diff = Math.abs(lufs - target);
+  return Math.max(40, Math.round(100 - diff * 8));
+}
+
+function pluginSettings(analysis, masterPlan) {
+  const target = masterPlan?.target_lufs || -10;
+  return [
+    ['TDR Nova', 'Dynamic EQ', 'Mud 200–400Hz: -2 dB dynamic cut · Harsh 2–5kHz: monitor · Sibilance 6–10kHz: dynamic de-ess'],
+    ['TDR Kotelnikov', 'Bus compression', 'Ratio 1.8:1–2.5:1 · GR target 2–4 dB · preserve transients'],
+    ['Valhalla Supermassive', 'Space', 'Short vocal plate or room · keep wet low enough to protect intelligibility'],
+    ['LoudMax', 'Limiter', `Ceiling -1 dBTP · target ${target} LUFS · avoid audible pumping`],
+  ];
+}
+
 function EliteAnalysisPanel() {
   const [analysis, setAnalysis] = useState(null);
   const [dismissed, setDismissed] = useState(false);
@@ -78,6 +102,9 @@ function EliteAnalysisPanel() {
   const freq = report.frequency_balance_report || {};
   const plugins = report.plugin_translation || {};
   const score = readinessScore(analysis, qualityFlags);
+  const streaming = lufsScore(analysis, masterPlan.target_lufs || -10);
+  const radio = Math.max(55, Math.min(98, streaming - (qualityFlags.length * 4)));
+  const club = Math.max(55, Math.min(98, streaming + (analysis.true_peak_dbtp != null && Number(analysis.true_peak_dbtp) <= -1 ? 3 : -8)));
   const metrics = [
     ['BPM', analysis.estimated_bpm || 'Detecting'],
     ['Key', analysis.estimated_key || 'Detecting'],
@@ -86,9 +113,15 @@ function EliteAnalysisPanel() {
   ];
   const pluginRows = Object.entries(plugins).slice(0, 4);
   const freqRisks = freq.detected_risks || [];
+  const recommendedSettings = pluginSettings(analysis, masterPlan);
+  const readinessRows = [
+    ['Streaming', streaming],
+    ['Radio', radio],
+    ['Club', club],
+  ];
 
   return (
-    <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(460px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 36px)', overflow: 'auto', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
+    <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(480px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 36px)', overflow: 'auto', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
         <div>
           <div style={{ color: '#55e9ff', fontSize: 11, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 4 }}>Elite Analysis Report</div>
@@ -102,6 +135,7 @@ function EliteAnalysisPanel() {
           <div>
             <div style={{ fontSize: 11, color: 'rgba(245,248,255,.48)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Commercial readiness</div>
             <div style={{ marginTop: 2, fontSize: 24, fontWeight: 950, color: '#57f09c' }}>{score}%</div>
+            <div style={{ color: 'rgba(245,248,255,.55)', fontSize: 11 }}>{scoreBand(score)}</div>
           </div>
           <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,.08)', borderRadius: 999, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${score}%`, background: 'linear-gradient(90deg,#57f09c,#55e9ff)', borderRadius: 999 }} />
@@ -114,6 +148,15 @@ function EliteAnalysisPanel() {
           <div key={label} style={{ border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', borderRadius: 12, padding: '9px 8px', textAlign: 'center' }}>
             <div style={{ fontSize: 10, color: 'rgba(245,248,255,.42)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</div>
             <div style={{ marginTop: 3, fontSize: 13, color: '#57f09c', fontWeight: 900 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10 }}>
+        {readinessRows.map(([label, value]) => (
+          <div key={label} style={{ border: '1px solid rgba(85,233,255,.14)', background: 'rgba(85,233,255,.04)', borderRadius: 12, padding: 9 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5 }}><b>{label}</b><span>{value}%</span></div>
+            <div style={{ height: 5, background: 'rgba(255,255,255,.08)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${value}%`, background: '#55e9ff' }} /></div>
           </div>
         ))}
       </div>
@@ -137,6 +180,16 @@ function EliteAnalysisPanel() {
           ))}
         </div>
       )}
+
+      <div style={{ marginTop: 12, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.035)', borderRadius: 14, padding: 12 }}>
+        <div style={{ color: '#f5f8ff', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Suggested Plugin Settings</div>
+        {recommendedSettings.map(([name, role, setting]) => (
+          <div key={name} style={{ marginTop: 7, fontSize: 11, lineHeight: 1.45 }}>
+            <b style={{ color: '#55e9ff' }}>{name}</b><span style={{ color: 'rgba(245,248,255,.45)' }}> · {role}</span>
+            <div style={{ color: 'rgba(245,248,255,.72)' }}>{setting}</div>
+          </div>
+        ))}
+      </div>
 
       {pluginRows.length > 0 && (
         <div style={{ marginTop: 12, border: '1px solid rgba(85,233,255,.18)', background: 'rgba(85,233,255,.05)', borderRadius: 14, padding: 12 }}>
