@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import BaseInfinityApp from './InfinityBase.jsx';
 import AudioMVP from './AudioMVPV2.jsx';
 import AuthDashboard from './AuthDashboardV122.jsx';
@@ -51,10 +51,10 @@ function lufsScore(analysis, target = -10) {
 function pluginSettings(analysis, masterPlan) {
   const target = masterPlan?.target_lufs || -10;
   return [
-    ['TDR Nova', 'Dynamic EQ', 'Mud 200–400Hz: -2 dB dynamic cut · Harsh 2–5kHz: monitor · Sibilance 6–10kHz: dynamic de-ess'],
-    ['TDR Kotelnikov', 'Bus compression', 'Ratio 1.8:1–2.5:1 · GR target 2–4 dB · preserve transients'],
-    ['Valhalla Supermassive', 'Space', 'Short vocal plate or room · keep wet low enough to protect intelligibility'],
-    ['LoudMax', 'Limiter', `Ceiling -1 dBTP · target ${target} LUFS · avoid audible pumping`],
+    ['TDR Nova', 'Dynamic EQ', 'Mud 200â€“400Hz: -2 dB dynamic cut Â· Harsh 2â€“5kHz: monitor Â· Sibilance 6â€“10kHz: dynamic de-ess'],
+    ['TDR Kotelnikov', 'Bus compression', 'Ratio 1.8:1â€“2.5:1 Â· GR target 2â€“4 dB Â· preserve transients'],
+    ['Valhalla Supermassive', 'Space', 'Short vocal plate or room Â· keep wet low enough to protect intelligibility'],
+    ['LoudMax', 'Limiter', `Ceiling -1 dBTP Â· target ${target} LUFS Â· avoid audible pumping`],
   ];
 }
 
@@ -201,7 +201,7 @@ function EliteAnalysisPanel() {
           <div style={{ color: '#55e9ff', fontSize: 11, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 4 }}>Elite Analysis Report</div>
           <div style={{ fontSize: 17, fontWeight: 900 }}>AI engineer report ready</div>
         </div>
-        <button type="button" onClick={() => setDismissed(true)} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: 'rgba(245,248,255,.65)', borderRadius: 10, width: 30, height: 30, cursor: 'pointer' }}>×</button>
+        <button type="button" onClick={() => setDismissed(true)} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: 'rgba(245,248,255,.65)', borderRadius: 10, width: 30, height: 30, cursor: 'pointer' }}>Ã—</button>
       </div>
 
       <div style={{ marginTop: 14, border: '1px solid rgba(87,240,156,.2)', background: 'rgba(87,240,156,.06)', borderRadius: 14, padding: 12 }}>
@@ -247,7 +247,7 @@ function EliteAnalysisPanel() {
       <div style={{ marginTop: 12, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.035)', borderRadius: 14, padding: 12 }}>
         <div style={{ color: '#f5f8ff', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Why this score?</div>
         {reasons.map((item, index) => (
-          <div key={index} style={{ color: 'rgba(245,248,255,.72)', fontSize: 11, lineHeight: 1.45, marginTop: index ? 4 : 0 }}>• {item}</div>
+          <div key={index} style={{ color: 'rgba(245,248,255,.72)', fontSize: 11, lineHeight: 1.45, marginTop: index ? 4 : 0 }}>â€¢ {item}</div>
         ))}
       </div>
 
@@ -258,7 +258,7 @@ function EliteAnalysisPanel() {
         </div>
         <div style={{ border: '1px solid rgba(87,240,156,.22)', background: 'rgba(87,240,156,.06)', borderRadius: 14, padding: 12 }}>
           <div style={{ color: '#57f09c', fontWeight: 900, fontSize: 12, marginBottom: 5 }}>Master Target</div>
-          <div style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.5 }}>{masterPlan.target_lufs ? `${masterPlan.target_lufs} LUFS · ${masterPlan.true_peak_ceiling} dBTP · ${masterPlan.character}` : 'Commercial loudness target and QC profile generated.'}</div>
+          <div style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.5 }}>{masterPlan.target_lufs ? `${masterPlan.target_lufs} LUFS Â· ${masterPlan.true_peak_ceiling} dBTP Â· ${masterPlan.character}` : 'Commercial loudness target and QC profile generated.'}</div>
         </div>
       </div>
 
@@ -266,7 +266,7 @@ function EliteAnalysisPanel() {
         <div style={{ marginTop: 12, border: '1px solid rgba(255,207,102,.2)', background: 'rgba(255,207,102,.06)', borderRadius: 14, padding: 12 }}>
           <div style={{ color: '#ffcf66', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Frequency Balance Checks</div>
           {freqRisks.slice(0, 3).map((item, index) => (
-            <div key={index} style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.45, marginTop: index ? 4 : 0 }}>• {item}</div>
+            <div key={index} style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.45, marginTop: index ? 4 : 0 }}>â€¢ {item}</div>
           ))}
         </div>
       )}
@@ -275,7 +275,7 @@ function EliteAnalysisPanel() {
         <div style={{ color: '#f5f8ff', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Suggested Plugin Settings</div>
         {recommendedSettings.map(([name, role, setting]) => (
           <div key={name} style={{ marginTop: 7, fontSize: 11, lineHeight: 1.45 }}>
-            <b style={{ color: '#55e9ff' }}>{name}</b><span style={{ color: 'rgba(245,248,255,.45)' }}> · {role}</span>
+            <b style={{ color: '#55e9ff' }}>{name}</b><span style={{ color: 'rgba(245,248,255,.45)' }}> Â· {role}</span>
             <div style={{ color: 'rgba(245,248,255,.72)' }}>{setting}</div>
           </div>
         ))}
@@ -298,6 +298,9 @@ function EliteAnalysisPanel() {
           {qualityFlags.length} quality issue{qualityFlags.length > 1 ? 's' : ''} detected. Open the analysis JSON for full QC details.
         </div>
       )}
+    </div>
+  );
+}
     </div>
   );
 }
@@ -348,3 +351,4 @@ export default function InfinityActionRouter() {
     </>
   );
 }
+
