@@ -25,6 +25,15 @@ function routeForLabel(label) {
   return null;
 }
 
+function readinessScore(analysis, flags) {
+  let score = 92;
+  if (analysis.integrated_lufs == null) score -= 8;
+  if (analysis.true_peak_dbtp == null) score -= 8;
+  if (analysis.true_peak_dbtp != null && Number(analysis.true_peak_dbtp) > -1) score -= 18;
+  if (flags?.length) score -= Math.min(24, flags.length * 7);
+  return Math.max(45, Math.min(99, score));
+}
+
 function EliteAnalysisPanel() {
   const [analysis, setAnalysis] = useState(null);
   const [dismissed, setDismissed] = useState(false);
@@ -66,21 +75,38 @@ function EliteAnalysisPanel() {
   const mixPlan = report.mix_plan || {};
   const masterPlan = report.master_plan || {};
   const qualityFlags = report.quality_flags || [];
+  const freq = report.frequency_balance_report || {};
+  const plugins = report.plugin_translation || {};
+  const score = readinessScore(analysis, qualityFlags);
   const metrics = [
     ['BPM', analysis.estimated_bpm || 'Detecting'],
     ['Key', analysis.estimated_key || 'Detecting'],
     ['LUFS', analysis.integrated_lufs ?? 'N/A'],
     ['True Peak', analysis.true_peak_dbtp ?? 'N/A'],
   ];
+  const pluginRows = Object.entries(plugins).slice(0, 4);
+  const freqRisks = freq.detected_risks || [];
 
   return (
-    <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(420px, calc(100vw - 24px))', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
+    <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 10000, width: 'min(460px, calc(100vw - 24px))', maxHeight: 'calc(100vh - 36px)', overflow: 'auto', color: '#f5f8ff', border: '1px solid rgba(85,233,255,.28)', background: 'linear-gradient(145deg, rgba(12,14,26,.98), rgba(18,22,38,.98))', borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.55), 0 0 44px rgba(85,233,255,.12)', padding: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
         <div>
           <div style={{ color: '#55e9ff', fontSize: 11, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 4 }}>Elite Analysis Report</div>
           <div style={{ fontSize: 17, fontWeight: 900 }}>AI engineer report ready</div>
         </div>
         <button type="button" onClick={() => setDismissed(true)} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: 'rgba(245,248,255,.65)', borderRadius: 10, width: 30, height: 30, cursor: 'pointer' }}>×</button>
+      </div>
+
+      <div style={{ marginTop: 14, border: '1px solid rgba(87,240,156,.2)', background: 'rgba(87,240,156,.06)', borderRadius: 14, padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'rgba(245,248,255,.48)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Commercial readiness</div>
+            <div style={{ marginTop: 2, fontSize: 24, fontWeight: 950, color: '#57f09c' }}>{score}%</div>
+          </div>
+          <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,.08)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${score}%`, background: 'linear-gradient(90deg,#57f09c,#55e9ff)', borderRadius: 999 }} />
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 14 }}>
@@ -102,6 +128,27 @@ function EliteAnalysisPanel() {
           <div style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.5 }}>{masterPlan.target_lufs ? `${masterPlan.target_lufs} LUFS · ${masterPlan.true_peak_ceiling} dBTP · ${masterPlan.character}` : 'Commercial loudness target and QC profile generated.'}</div>
         </div>
       </div>
+
+      {freqRisks.length > 0 && (
+        <div style={{ marginTop: 12, border: '1px solid rgba(255,207,102,.2)', background: 'rgba(255,207,102,.06)', borderRadius: 14, padding: 12 }}>
+          <div style={{ color: '#ffcf66', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Frequency Balance Checks</div>
+          {freqRisks.slice(0, 3).map((item, index) => (
+            <div key={index} style={{ color: 'rgba(245,248,255,.72)', fontSize: 12, lineHeight: 1.45, marginTop: index ? 4 : 0 }}>• {item}</div>
+          ))}
+        </div>
+      )}
+
+      {pluginRows.length > 0 && (
+        <div style={{ marginTop: 12, border: '1px solid rgba(85,233,255,.18)', background: 'rgba(85,233,255,.05)', borderRadius: 14, padding: 12 }}>
+          <div style={{ color: '#55e9ff', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Plugin Chain Translation</div>
+          {pluginRows.map(([name, purpose]) => (
+            <div key={name} style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, color: 'rgba(245,248,255,.72)', fontSize: 11, lineHeight: 1.45, marginTop: 5 }}>
+              <b style={{ color: 'rgba(245,248,255,.9)' }}>{name}</b>
+              <span>{purpose}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {qualityFlags.length > 0 && (
         <div style={{ marginTop: 12, color: '#ffcf66', fontSize: 12, lineHeight: 1.5 }}>
