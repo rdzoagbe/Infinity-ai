@@ -1200,6 +1200,37 @@ export default function AudioMVPV2({ open, onClose }) {
                 </div>
               </div>
 
+              {masterRender?.mix_notes && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Mix notes</div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(245,248,255,.85)' }}>{masterRender.mix_notes}</div>
+                  {masterRender.loudness_report?.integrated_lufs != null && (
+                    <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
+                      {[
+                        ['Integrated', `${masterRender.loudness_report.integrated_lufs} LUFS`],
+                        ['True peak', `${masterRender.loudness_report.true_peak_dbtp} dBTP`],
+                        ['Dynamic range', `${masterRender.loudness_report.lra} LU`],
+                      ].map(([k, v]) => (
+                        <div key={k} style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 10, color: 'rgba(245,248,255,.4)', textTransform: 'uppercase', letterSpacing: 1 }}>{k}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#57f09c' }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {masterRender.frequency_balance && (
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {Object.entries(masterRender.frequency_balance).map(([band, desc]) => (
+                        <div key={band} style={{ fontSize: 12, display: 'flex', gap: 8 }}>
+                          <span style={{ color: '#b78aff', fontWeight: 700, minWidth: 140 }}>{band}</span>
+                          <span style={{ color: 'rgba(245,248,255,.65)' }}>{desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {masterPreviewUrl && (
                 <div style={{ ...card, marginBottom: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
