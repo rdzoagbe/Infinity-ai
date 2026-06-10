@@ -19,6 +19,22 @@ Infinity is a futuristic AI-powered music production ecosystem prototype.
 - PyTorch inference workers
 - Firebase/Supabase storage
 
+## Elite engineering foundation
+
+The `elite-audio-analysis-foundation` branch introduces the first backend foundation for a more professional mix/master workflow.
+
+It adds `backend/app/elite_engine.py`, which defines:
+
+- Genre-specific mastering targets
+- Mix-plan generation
+- Master-plan generation
+- Quality-control flags
+- Frequency balance reporting
+- Plugin-to-DSP translation notes
+- Structured deliverables for engineering reports
+
+This is the first step toward turning Infinity from a prompt-driven prototype into a structured audio engineering system.
+
 ## Infinity v4 Backend
 
 The repository now includes a FastAPI backend scaffold in `backend/`.
