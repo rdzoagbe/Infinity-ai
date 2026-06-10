@@ -10,8 +10,10 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from .analysis_status import analysis_capabilities
 from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs, separate_stems_with_ffmpeg
 from .config import get_settings
+from .elite_engine import build_elite_engineering_report
 from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress
 
@@ -67,6 +69,10 @@ def root():
 def health():
     return {"status": "ok", "version": "10.0.0", "environment": settings.infinity_env, "ffmpeg_available": has_ffmpeg(), "demucs_available": has_demucs()}
 
+@app.get("/api/v1/analysis/capabilities")
+def get_analysis_capabilities():
+    return analysis_capabilities()
+
 @app.post("/api/v1/projects")
 def create_project(payload: ProjectCreateRequest):
     project_id = make_id("project")
@@ -111,9 +117,10 @@ def analyze_audio(payload: AnalyzeRequest):
     job = create_job(JobType.analyze, message="Analysis started")
     metadata = read_basic_audio_metadata(stored_path) if stored_path.suffix.lower() != ".zip" else file_data.get("metadata", {})
     result = full_audio_analysis(file_data["filename"], payload.file_id, stored_path, metadata)
+    result["elite_engineering_report"] = build_elite_engineering_report(result)
     analysis_path = Path(file_data["workspace"]) / "analysis" / "analysis.json"
     analysis_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    return complete_job(job, result=result, message="Infinity v10 analysis complete")
+    return complete_job(job, result=result, message="Infinity elite analysis complete")
 
 @app.post("/api/v1/audio/mix")
 def mix_audio(payload: ProcessRequest):
@@ -176,7 +183,6 @@ def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewReques
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
-
 
 @app.post("/api/v1/audio/style-preview")
 def style_preview(payload: StylePreviewRequest):
