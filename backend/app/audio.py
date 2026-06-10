@@ -160,6 +160,76 @@ def _lufs_for_platform(platform: str) -> int:
     return PLATFORM_LUFS.get(key, -14)
 
 
+# Genre-driven loudness energy targets (Pop/EDM/Hip-Hop run hotter, Acoustic/Cinematic stay dynamic)
+GENRE_LUFS: dict[str, float] = {
+    "trap": -9.0,
+    "drill": -8.5,
+    "afrobeat": -9.0,
+    "house": -8.0,
+    "gospel": -12.0,
+    "cinematic": -14.0,
+    "soul": -11.0,
+    "experimental": -11.0,
+    "custom": -10.0,
+}
+
+
+def _genre_lufs(genre_key: str) -> float:
+    return GENRE_LUFS.get(genre_key, -10.0)
+
+
+def _frequency_balance_report(genre_key: str, low_eq: float, mid_eq: float, high_eq: float, air_boost: bool) -> dict:
+    genre_low_mid = {
+        "trap": "Sub punch boosted at 65 Hz, mud cut at 200 Hz",
+        "drill": "Deep sub at 55 Hz, kick body lifted at 150 Hz",
+        "afrobeat": "Kick/bass punch at 80 Hz, groove warmth at 280 Hz",
+        "house": "Kick weight at 85 Hz, boxiness cut at 500 Hz",
+        "gospel": "Vocal warmth at 200 Hz, boxy cut at 800 Hz",
+        "cinematic": "Low rumble tamed below 120 Hz",
+        "soul": "Warm bass at 120 Hz, vintage low-mid lift at 350 Hz",
+    }.get(genre_key, "Balanced low end, gentle 90 Hz lift")
+
+    genre_high_mid = {
+        "trap": "Presence lift at 3.5 kHz, airy sparkle at 10 kHz",
+        "drill": "Harshness cut at 3 kHz, dark top-end at 9 kHz",
+        "afrobeat": "Vocal & percussion presence at 4 kHz",
+        "house": "Energy lift at 3.5 kHz, sparkle at 10 kHz",
+        "gospel": "Choir presence at 4 kHz, air at 11 kHz",
+        "cinematic": "Detail lift at 2.5 kHz, spacious air at 12 kHz",
+        "soul": "Vocal silk at 4.5 kHz, smooth top at 10 kHz",
+    }.get(genre_key, "Presence lift at 3.2 kHz, air at 11 kHz")
+
+    return {
+        "low (20-250Hz)": (genre_low_mid + (f", user low EQ {low_eq:+.1f} dB" if abs(low_eq) > 0.5 else "")),
+        "mid (250Hz-4kHz)": (f"User mid EQ {mid_eq:+.1f} dB" if abs(mid_eq) > 0.5 else "Untouched — left for genre EQ"),
+        "high-mid/high (4-20kHz)": (genre_high_mid
+                                     + (", extra brightness" if air_boost else "")
+                                     + (f", user high EQ {high_eq:+.1f} dB" if abs(high_eq) > 0.5 else "")),
+        "sibilance (8kHz)": "De-essed −1.5 dB (always on)",
+    }
+
+
+def _build_mix_notes(genre_key: str, mode: str, safe_strength: int, compress_ratio: float, compress_threshold: float,
+                      stereo_width: float, warmth_label: str, target_lufs: float, platform: str,
+                      measured: dict) -> str:
+    measured_lufs = measured.get("integrated_lufs")
+    measured_tp = measured.get("true_peak_dbtp")
+    measured_lra = measured.get("lra")
+    result_line = (
+        f"Measured result: {measured_lufs} LUFS integrated, {measured_tp} dBTP true peak, {measured_lra} LU dynamic range."
+        if measured_lufs is not None else
+        "Loudness measurement unavailable for this render."
+    )
+    return (
+        f"{mode} master at {safe_strength}% strength. "
+        f"Applied {genre_key}-tuned EQ shaping, {warmth_label.lower()}, "
+        f"transparent compression at {compress_ratio}:1 (threshold {compress_threshold:.0f} dB), "
+        f"stereo width x{stereo_width:.2f}. "
+        f"Targeted {target_lufs:.1f} LUFS / -1 dBTP for {platform}. "
+        f"{result_line}"
+    )
+
+
 def clean_vocals_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
@@ -550,7 +620,11 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     genre_key = "afrobeat" if "afro" in genre_key else genre_key
     genre_key = "cinematic" if genre_key not in {"trap", "drill", "afrobeat", "house", "gospel", "soul", "experimental"} and "custom" not in genre_key else genre_key
 
-    target_lufs = _lufs_for_platform(platform)
+    # Blend platform streaming target with genre energy target — louder genres (EDM/Trap)
+    # push closer to their commercial loudness, while staying tied to the platform's reference
+    platform_lufs = _lufs_for_platform(platform)
+    genre_lufs = _genre_lufs(genre_key)
+    target_lufs = round((platform_lufs + genre_lufs) / 2, 1)
     wav_path = output_dir / "mastered.wav"
     mp3_path = output_dir / "mastered.mp3"
     preview_path = output_dir / "mastered-preview.mp3"
@@ -558,7 +632,8 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     genre_eq, compress_ratio, compress_threshold, stereo_width = _genre_filters(genre_key, intensity)
 
     makeup = round(1.0 + intensity * 1.2, 2)
-    limit = round(0.91 + intensity * 0.07, 3)
+    # True-peak ceiling ~ -1 dBTP (0.891 linear), opening slightly with strength
+    limit = round(0.89 + intensity * 0.04, 3)
 
     safe_warmth = max(0.0, min(1.0, float(warmth)))
     # Push signal into the saturation curve, then let loudnorm fix the level.
@@ -584,7 +659,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         # Transparent soft-knee compression — musical, not robotic
         f"acompressor=threshold={compress_threshold:.1f}dB:ratio={compress_ratio}:attack=20:release=200:knee=4:makeup={makeup}",
         f"extrastereo=m={stereo_width:.2f}",                     # genre-tuned stereo width
-        f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11",             # streaming loudness (LRA=11 keeps dynamics)
+        f"loudnorm=I={target_lufs}:TP=-1.0:LRA=11",             # streaming loudness (LRA=11 keeps dynamics)
         f"alimiter=limit={limit}",                               # true-peak ceiling
     ]
     audio_filter = ",".join(filters)
@@ -618,6 +693,13 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         else "subtle analog warmth" if safe_warmth > 0.03
         else "off (clean digital)"
     )
+
+    # Real loudness measurement of the finished master, for the loudness report
+    loudness_report = measure_lufs(wav_path) if wav_path.exists() else {}
+    frequency_balance = _frequency_balance_report(genre_key, low_eq, mid_eq, high_eq, air_boost)
+    mix_notes = _build_mix_notes(genre_key, mode, safe_strength, compress_ratio, compress_threshold,
+                                  stereo_width, warmth_label, target_lufs, platform, loudness_report)
+
     return {
         "status": "completed",
         "mode": mode,
@@ -630,6 +712,9 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "high_eq": high_eq,
         "target_lufs": target_lufs,
         "filter_chain": audio_filter,
+        "loudness_report": loudness_report,
+        "frequency_balance": frequency_balance,
+        "mix_notes": mix_notes,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
             f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
@@ -639,7 +724,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
             "transparent soft-knee compression",
             "stereo widening",
             "streaming loudness normalisation",
-            "true-peak limiting",
+            "true-peak limiting (-1 dBTP)",
             "WAV + 320k MP3 + 30s preview render",
         ],
         "outputs": outputs,
