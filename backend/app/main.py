@@ -13,7 +13,7 @@ from .analysis_status import analysis_capabilities
 from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance_mix_with_ffmpeg, full_audio_analysis, generate_prompt_sound, has_demucs, has_ffmpeg, mix_vocal_beat_with_ffmpeg, read_basic_audio_metadata, render_master_with_ffmpeg, render_style_preview_with_ffmpeg, separate_stems_with_demucs, separate_stems_with_ffmpeg
 from .config import get_settings
 from .elite_engine import build_elite_engineering_report
-from .models import AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
+from .models import AiAnalyzeRequest, AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress
 
 STYLE_PROMPTS = {
@@ -616,6 +616,137 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
 
         downloads = {"style_preview": f"/api/v1/files/{payload.file_id}/download/style-preview", "transform": f"/api/v1/files/{payload.file_id}/download/style-preview"}
         complete_job(JOBS[job_id], {"file_id": payload.file_id, "mode": payload.mode, "downloads": downloads}, f"{payload.mode} transform complete — vocals preserved")
+    except Exception as e:
+        fail_job(job_id, str(e))
+
+
+GENRE_BENCHMARKS = {
+    "trap":     {"lufs": (-9, -7),  "lra": (4, 7),   "tp": -0.5, "ref": "Travis Scott – ASTROWORLD, Drake – Certified Lover Boy"},
+    "drill":    {"lufs": (-9, -7),  "lra": (3, 6),   "tp": -0.5, "ref": "Pop Smoke – Shoot for the Stars, Central Cee – 23"},
+    "afrobeat": {"lufs": (-11, -9), "lra": (6, 10),  "tp": -1.0, "ref": "Burna Boy – Twice as Tall, Wizkid – Made in Lagos"},
+    "house":    {"lufs": (-9, -7),  "lra": (4, 7),   "tp": -0.5, "ref": "Fred Again – Actual Life 3, Four Tet – There Is Love in You"},
+    "gospel":   {"lufs": (-13, -11),"lra": (8, 13),  "tp": -1.0, "ref": "Kirk Franklin – Long Live Love, Maverick City – Jubilee"},
+    "cinematic":{"lufs": (-16, -12),"lra": (12, 20), "tp": -1.0, "ref": "Hans Zimmer – Interstellar OST, Ludwig Göransson – Black Panther"},
+    "soul":     {"lufs": (-13, -10),"lra": (7, 12),  "tp": -1.0, "ref": "Daniel Caesar – Case Study 01, SZA – SOS"},
+    "experimental":{"lufs":(-12,-9),"lra": (6, 12),  "tp": -1.0, "ref": "FKA Twigs – Magdalene, Arca – KiCk i"},
+    "custom":   {"lufs": (-12, -9), "lra": (6, 11),  "tp": -1.0, "ref": "Top 40 Pop/R&B"},
+}
+
+@app.post("/api/v1/audio/analyze-ai")
+def analyze_ai_endpoint(payload: AiAnalyzeRequest, background_tasks: BackgroundTasks):
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=503, detail="Anthropic API key not configured")
+    file_data = get_file_or_404(payload.file_id)
+    job = create_job(JobType.analyze_ai, message="AI analysis queued")
+    background_tasks.add_task(_run_analyze_ai, job.job_id, file_data, payload)
+    return {"job_id": job.job_id, "status": "processing", "message": "AI analysis started"}
+
+def _run_analyze_ai(job_id: str, file_data: dict, payload: AiAnalyzeRequest):
+    try:
+        import anthropic as anthropic_sdk
+
+        update_job_progress(job_id, 5, "Measuring audio…")
+        workspace = Path(file_data["workspace"])
+        renders   = workspace / "renders"
+
+        # Use best available version of the track for measurement
+        style_prev = renders / "style-preview.mp3"
+        enhanced   = renders / "enhanced.wav"
+        cleaned    = renders / "mix-cleaned.wav"
+        measure_path = (style_prev if style_prev.exists()
+                        else enhanced if enhanced.exists()
+                        else cleaned  if cleaned.exists()
+                        else Path(file_data["stored_path"]))
+
+        from .audio import measure_lufs
+        lufs = measure_lufs(measure_path)
+
+        meta = file_data.get("metadata", {})
+        duration_s = meta.get("duration_seconds") or meta.get("duration") or 0
+        sample_rate = meta.get("sample_rate") or 44100
+        bitrate     = meta.get("bitrate") or 0
+        channels    = meta.get("channels") or 2
+        filename    = file_data.get("filename", "track.mp3")
+
+        genre_key = (payload.genre or "custom").lower().strip()
+        genre_key = "afrobeat" if "afro" in genre_key else genre_key
+        if genre_key not in GENRE_BENCHMARKS:
+            genre_key = "custom"
+        bench = GENRE_BENCHMARKS[genre_key]
+
+        integrated_lufs = lufs.get("integrated_lufs")
+        true_peak       = lufs.get("true_peak_dbtp")
+        lra             = lufs.get("lra")
+        duration_min    = f"{int(duration_s // 60)}:{int(duration_s % 60):02d}" if duration_s else "unknown"
+        bitrate_kbps    = round(bitrate / 1000) if bitrate else None
+
+        measurements_text = f"""
+TRACK: {filename}
+GENRE: {payload.genre}
+DURATION: {duration_min}
+CHANNELS: {"Stereo" if channels >= 2 else "Mono"}
+SAMPLE RATE: {sample_rate} Hz
+BITRATE: {f"{bitrate_kbps} kbps" if bitrate_kbps else "unknown"}
+INTEGRATED LOUDNESS: {f"{integrated_lufs} LUFS" if integrated_lufs is not None else "could not measure"}
+TRUE PEAK: {f"{true_peak} dBTP" if true_peak is not None else "could not measure"}
+LOUDNESS RANGE (LRA): {f"{lra} LU" if lra is not None else "could not measure"}
+
+REFERENCE TARGETS for {payload.genre}:
+  Loudness: {bench["lufs"][0]} to {bench["lufs"][1]} LUFS
+  LRA (dynamics): {bench["lra"][0]} to {bench["lra"][1]} LU
+  True peak: {bench["tp"]} dBTP
+  Commercial reference releases: {bench["ref"]}
+""".strip()
+
+        update_job_progress(job_id, 20, "Running AI analysis — this takes ~20 seconds…")
+
+        client = anthropic_sdk.Anthropic(api_key=settings.anthropic_api_key)
+        system_prompt = (
+            "You are a Grammy-winning producer, mix engineer, mastering engineer, and A&R executive. "
+            "Analyze songs about to be released commercially. Evaluate songwriting, arrangement, performance, "
+            "vocals, instrumentation, frequency balance, dynamics, stereo image, low end, transients, loudness, "
+            "clarity, emotional impact, and commercial competitiveness. Identify the root cause of every issue "
+            "rather than treating symptoms. Recommend the minimum processing required to achieve a professional "
+            "result, explaining the purpose of every change and why it is necessary. Compare to top releases in "
+            "the genre, prioritize improvements from highest to lowest impact, identify anything that is "
+            "over-processed, and finish with a step-by-step action plan. Be specific with dB values, frequencies, "
+            "compressor settings, and plugin/process names. Keep each section tight — no fluff."
+        )
+        user_message = (
+            f"Analyze this track for commercial release:\n\n{measurements_text}\n\n"
+            "Produce a full professional analysis with these sections:\n"
+            "1. TECHNICAL OVERVIEW — measurements vs genre benchmarks, verdict\n"
+            "2. CRITICAL ISSUES — root cause of each problem, ranked highest to lowest impact\n"
+            "3. PROCESSING RECOMMENDATIONS — minimum changes needed, purpose of each\n"
+            "4. COMMERCIAL COMPETITIVENESS — comparison to reference tracks, score /10\n"
+            "5. ACTION PLAN — ordered step-by-step list to reach release-ready quality\n\n"
+            "Be direct and specific. Use dB values and frequencies where relevant."
+        )
+
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        analysis_text = message.content[0].text
+
+        update_job_progress(job_id, 90, "Formatting report…")
+        complete_job(JOBS[job_id], {
+            "file_id": payload.file_id,
+            "genre": payload.genre,
+            "measurements": {
+                "integrated_lufs": integrated_lufs,
+                "true_peak_dbtp": true_peak,
+                "lra": lra,
+                "duration": duration_min,
+                "sample_rate": sample_rate,
+                "channels": channels,
+                "bitrate_kbps": bitrate_kbps,
+            },
+            "benchmarks": bench,
+            "analysis": analysis_text,
+        }, "AI analysis complete")
     except Exception as e:
         fail_job(job_id, str(e))
 

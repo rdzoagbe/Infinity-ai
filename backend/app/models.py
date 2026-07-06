@@ -20,7 +20,7 @@ class JobType(str, Enum):
     export = "export"
     clean_vocals = "clean_vocals"
     mix_vocal_beat = "mix_vocal_beat"
-    transform_style = "transform_style"
+    analyze_ai = "analyze_ai"
 
 
 class AudioFileMetadata(BaseModel):
@@ -101,6 +101,11 @@ class TransformStyleRequest(BaseModel):
     mode: str = "Afrobeat"
     strength: int = 72
     duration: int = 30
+
+
+class AiAnalyzeRequest(BaseModel):
+    file_id: str
+    genre: str = "Custom AI adaptive"
 
 
 class ProjectCreateRequest(BaseModel):

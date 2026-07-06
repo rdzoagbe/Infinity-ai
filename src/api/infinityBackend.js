@@ -218,6 +218,15 @@ export async function transformStyleOnBackend(fileId, mode, strength, duration =
   return parseResponse(response, 'Style transform failed');
 }
 
+export async function analyzeAiOnBackend(fileId, genre) {
+  const response = await fetch(`${API_BASE}/api/v1/audio/analyze-ai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file_id: fileId, genre }),
+  });
+  return parseResponse(response, 'AI analysis failed');
+}
+
 export async function fetchFileInfo(fileId) {
   const response = await fetch(`${API_BASE}/api/v1/files/${fileId}`);
   return parseResponse(response, "File not found");
