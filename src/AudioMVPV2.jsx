@@ -12,6 +12,7 @@ import {
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
+  analyzeAiOnBackend,
   fetchFileInfo,
   transformStyleOnBackend,
   uploadAudioToBackend,
@@ -383,6 +384,10 @@ export default function AudioMVPV2({ open, onClose }) {
   const [transformProgress, setTransformProgress] = useState(null);
   const [transformProgressMsg, setTransformProgressMsg] = useState('');
 
+  const [aiAnalysisJob, setAiAnalysisJob] = useState(null);
+  const [aiAnalysisBusy, setAiAnalysisBusy] = useState(false);
+  const [aiAnalysisProgress, setAiAnalysisProgress] = useState(null);
+
   const [restoredName, setRestoredName] = useState('');
   const songUrlRef = useRef('');
 
@@ -652,6 +657,23 @@ export default function AudioMVPV2({ open, onClose }) {
       }
     } finally {
       setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
+    }
+  };
+
+  const runAiAnalysis = async () => {
+    if (!songBackend?.file_id) return;
+    setAiAnalysisBusy(true); setAiAnalysisProgress(0); setError('');
+    try {
+      const init = await analyzeAiOnBackend(songBackend.file_id, mode);
+      const jobId = init?.job_id;
+      if (jobId) {
+        const job = await pollUntilComplete(jobId, (p) => setAiAnalysisProgress(p));
+        setAiAnalysisJob(job);
+      }
+    } catch (err) {
+      setError(`AI analysis failed: ${safeError(err)}`);
+    } finally {
+      setAiAnalysisBusy(false); setAiAnalysisProgress(null);
     }
   };
 
@@ -927,6 +949,45 @@ export default function AudioMVPV2({ open, onClose }) {
           </div>
           <StatusBox message={status} error={error} busy={busy} />
           {cleanProgress != null && <ProgressBar progress={cleanProgress} label={cleanProgressMsg} color="#57f09c" />}
+
+          {/* AI Song Analysis */}
+          {songBackend?.file_id && (
+            <div style={{ marginTop: 16 }}>
+              <button
+                data-infinity-local-action="true"
+                disabled={aiAnalysisBusy}
+                onClick={runAiAnalysis}
+                style={{ width: '100%', padding: '12px 0', borderRadius: 14, border: '1px solid rgba(85,233,255,.25)', background: 'rgba(85,233,255,.06)', color: '#55e9ff', fontSize: 14, fontWeight: 700, cursor: aiAnalysisBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+              >
+                <Sparkles size={15} /> {aiAnalysisBusy ? 'Analyzing…' : aiAnalysisJob ? 'Re-analyze with AI' : 'Get AI Producer Feedback'}
+              </button>
+              {aiAnalysisBusy && <ProgressBar progress={aiAnalysisProgress} label="AI is analyzing your track…" color="#55e9ff" />}
+              {aiAnalysisJob?.result?.analysis && (
+                <div style={{ marginTop: 12, background: 'rgba(10,12,26,.7)', border: '1px solid rgba(85,233,255,.15)', borderRadius: 16, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 11, color: '#55e9ff', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>AI Producer Feedback</div>
+                  {aiAnalysisJob.result.measurements && (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                      {[
+                        aiAnalysisJob.result.measurements.integrated_lufs != null && ['LUFS', `${aiAnalysisJob.result.measurements.integrated_lufs}`],
+                        aiAnalysisJob.result.measurements.true_peak_dbtp != null && ['True Peak', `${aiAnalysisJob.result.measurements.true_peak_dbtp} dBTP`],
+                        aiAnalysisJob.result.measurements.lra != null && ['LRA', `${aiAnalysisJob.result.measurements.lra} LU`],
+                        aiAnalysisJob.result.measurements.duration && ['Duration', aiAnalysisJob.result.measurements.duration],
+                      ].filter(Boolean).map(([k, v]) => (
+                        <div key={k} style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 10, color: 'rgba(245,248,255,.38)', textTransform: 'uppercase', letterSpacing: 1 }}>{k}</div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#55e9ff' }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13, lineHeight: 1.75, color: 'rgba(245,248,255,.82)', whiteSpace: 'pre-wrap' }}>
+                    {aiAnalysisJob.result.analysis}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
         </div>
       );

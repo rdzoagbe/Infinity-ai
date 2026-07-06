@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     infinity_max_upload_mb: int = 250
     infinity_allowed_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:4173,https://rdzoagbe.github.io"
     replicate_api_token: str = ""
+    anthropic_api_key: str = ""
 
     @property
     def storage_path(self) -> Path:
