@@ -2,7 +2,6 @@ from pathlib import Path
 import json
 import shutil
 from datetime import datetime
-import base64
 import httpx
 import aiofiles
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
@@ -558,12 +557,10 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
         melody_source = instrumental or source
 
         update_job_progress(job_id, 12, "Preparing instrumental for AI transform…")
+        import os
         tmp_mp3 = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
         tmp_mp3.close()
         subprocess.run(["ffmpeg", "-y", "-i", str(melody_source), "-t", str(payload.duration), "-ar", "44100", "-ab", "192k", tmp_mp3.name], capture_output=True)
-        with open(tmp_mp3.name, "rb") as f:
-            melody_b64 = base64.b64encode(f.read()).decode()
-        melody_uri = f"data:audio/mp3;base64,{melody_b64}"
 
         prompt = STYLE_PROMPTS.get(payload.mode, payload.mode)
         if payload.strength < 40:
@@ -574,17 +571,21 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
         update_job_progress(job_id, 18, f"Sending to Replicate — {payload.mode} transform…")
         client = replicate_sdk.Client(api_token=settings.replicate_api_token)
         update_job_progress(job_id, 22, "AI is generating your transformed track — this takes ~1 min…")
-        output = client.run(
-            "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
-            input={
-                "model_version": "melody-large",
-                "prompt": prompt,
-                "input_audio": melody_uri,
-                "duration": payload.duration,
-                "output_format": "wav",
-                "normalization_strategy": "loudness",
-            },
-        )
+        try:
+            with open(tmp_mp3.name, "rb") as audio_file:
+                output = client.run(
+                    "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
+                    input={
+                        "model_version": "melody-large",
+                        "prompt": prompt,
+                        "input_audio": audio_file,
+                        "duration": payload.duration,
+                        "output_format": "wav",
+                        "normalization_strategy": "loudness",
+                    },
+                )
+        finally:
+            os.unlink(tmp_mp3.name)
         output_url = output[0] if isinstance(output, (list, tuple)) else output
         output_url = str(output_url)
         if not output_url:
