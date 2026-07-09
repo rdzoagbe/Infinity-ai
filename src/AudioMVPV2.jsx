@@ -689,7 +689,12 @@ export default function AudioMVPV2({ open, onClose }) {
         setAiAnalysisJob(job);
       }
     } catch (err) {
-      setError(`AI analysis failed: ${safeError(err)}`);
+      const msg = safeError(err);
+      if (msg.toLowerCase().includes('file not found')) {
+        expireSession(songBackend?.file_id);
+      } else {
+        setError(`AI analysis failed: ${msg}`);
+      }
     } finally {
       setAiAnalysisBusy(false); setAiAnalysisProgress(null);
     }
