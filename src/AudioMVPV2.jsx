@@ -636,28 +636,46 @@ export default function AudioMVPV2({ open, onClose }) {
     if (!songBackend?.file_id) return;
     setStylePreviewBusy(true); setStyleProgress(0); setStyleProgressMsg(`Transforming to ${mode}…`);
     setError(''); setTransformProgress(0);
-    try {
-      const init = await transformStyleOnBackend(songBackend.file_id, mode, strength);
-      const jobId = init?.job_id;
-      let job = init;
-      if (jobId) job = await pollUntilComplete(jobId, (p, msg) => {
-        setStyleProgress(p); setStyleProgressMsg(msg);
-        setTransformProgress(p);
-      });
-      setTransformJob(job);
-      const previewPath = job?.result?.downloads?.style_preview;
-      if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
-      setStatus(`${mode} transform ready — sounds right? Hit "Master it →"`);
-    } catch (err) {
-      const msg = safeError(err);
-      if (msg.toLowerCase().includes('file not found')) {
-        expireSession(songBackend?.file_id);
-      } else {
-        setError(`Transform failed: ${msg}`);
+    const MAX_RETRIES = 3;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 1) {
+          setStyleProgressMsg(`Backend waking up — retry ${attempt}/${MAX_RETRIES}…`);
+          await new Promise(r => setTimeout(r, 5000 * (attempt - 1)));
+        }
+        const init = await transformStyleOnBackend(songBackend.file_id, mode, strength);
+        const jobId = init?.job_id;
+        let job = init;
+        if (jobId) job = await pollUntilComplete(jobId, (p, msg) => {
+          setStyleProgress(p); setStyleProgressMsg(msg);
+          setTransformProgress(p);
+        });
+        setTransformJob(job);
+        const previewPath = job?.result?.downloads?.style_preview;
+        if (previewPath) setStylePreviewUrl(`${backendUrl(previewPath)}?t=${Date.now()}`);
+        setStatus(`${mode} transform ready — sounds right? Hit "Master it →"`);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const msg = safeError(err);
+        if (msg.toLowerCase().includes('file not found')) {
+          expireSession(songBackend?.file_id);
+          return;
+        }
+        const isNetwork = msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror');
+        if (!isNetwork || attempt === MAX_RETRIES) break;
       }
-    } finally {
-      setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
     }
+    if (lastErr) {
+      const msg = safeError(lastErr);
+      const isNetwork = msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror');
+      setError(isNetwork
+        ? 'Cannot reach the backend — it may be starting up. Please wait 30 seconds and try again.'
+        : `Transform failed: ${msg}`);
+    }
+    setStylePreviewBusy(false); setStyleProgress(null); setTransformProgress(null);
   };
 
   const runAiAnalysis = async () => {
@@ -671,7 +689,12 @@ export default function AudioMVPV2({ open, onClose }) {
         setAiAnalysisJob(job);
       }
     } catch (err) {
-      setError(`AI analysis failed: ${safeError(err)}`);
+      const msg = safeError(err);
+      if (msg.toLowerCase().includes('file not found')) {
+        expireSession(songBackend?.file_id);
+      } else {
+        setError(`AI analysis failed: ${msg}`);
+      }
     } finally {
       setAiAnalysisBusy(false); setAiAnalysisProgress(null);
     }

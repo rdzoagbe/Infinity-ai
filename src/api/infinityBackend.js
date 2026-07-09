@@ -209,7 +209,7 @@ export async function buildReleasePackageOnBackend(fileId) {
   return parseResponse(response, "Release package failed");
 }
 
-export async function transformStyleOnBackend(fileId, mode, strength, duration = 30) {
+export async function transformStyleOnBackend(fileId, mode, strength, duration = 20) {
   const response = await fetch(`${API_BASE}/api/v1/audio/transform-style`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
