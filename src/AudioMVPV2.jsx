@@ -932,9 +932,35 @@ export default function AudioMVPV2({ open, onClose }) {
                     ['Key', analysisData.estimated_key],
                     analysisData.integrated_lufs != null && ['Loudness', `${analysisData.integrated_lufs} LUFS`],
                     analysisData.lra != null && ['LRA', `${analysisData.lra} LU`],
+                    analysisData.dynamics?.rms_db != null && ['RMS', `${analysisData.dynamics.rms_db} dB`],
+                    analysisData.dynamics?.crest_factor_db != null && ['Crest', `${analysisData.dynamics.crest_factor_db} dB`],
                     analysisData.duration_seconds && ['Duration', `${Math.floor(analysisData.duration_seconds / 60)}:${String(Math.round(analysisData.duration_seconds % 60)).padStart(2, '0')}`],
                   ].filter(Boolean).map(([k, v]) => (
                     <span key={k} style={{ fontSize: 11, fontWeight: 700, background: 'rgba(85,233,255,.12)', color: '#55e9ff', borderRadius: 99, padding: '3px 10px' }}>{k}: {v}</span>
+                  ))}
+                </div>
+              )}
+              {/* Problems found */}
+              {analysisData?.processing_decisions?.problems?.length > 0 && (
+                <div style={{ marginTop: 12, background: 'rgba(255,180,60,.04)', border: '1px solid rgba(255,180,60,.18)', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#ffcf66', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What we found in your mix</div>
+                  {analysisData.processing_decisions.problems.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: p.severity === 'high' ? '#ff6b6b' : p.severity === 'medium' ? '#ffcf66' : '#57f09c', minWidth: 50, textTransform: 'uppercase' }}>{p.severity}</span>
+                      <div style={{ fontSize: 12, color: 'rgba(245,248,255,.78)', lineHeight: 1.5 }}><b style={{ color: '#f5f8ff' }}>{p.band}:</b> {p.description}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* What we'll do */}
+              {analysisData?.processing_decisions?.decisions?.length > 0 && (
+                <div style={{ marginTop: 8, background: 'rgba(87,240,156,.04)', border: '1px solid rgba(87,240,156,.15)', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#57f09c', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What Infinity will fix automatically</div>
+                  {analysisData.processing_decisions.decisions.map((d, i) => (
+                    <div key={i} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f5f8ff', marginBottom: 2 }}>{d.processor}{d.value ? ` — ${d.value}` : ''}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{d.reason}</div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -1312,6 +1338,24 @@ export default function AudioMVPV2({ open, onClose }) {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Processing chain — what we applied and why */}
+              {analysisData?.processing_decisions?.decisions?.length > 0 && masterJob?.result && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#b78aff', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Processing chain applied</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {analysisData.processing_decisions.decisions.map((d, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', paddingBottom: i < analysisData.processing_decisions.decisions.length - 1 ? 10 : 0, borderBottom: i < analysisData.processing_decisions.decisions.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(183,138,255,.15)', border: '1px solid rgba(183,138,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#b78aff', flexShrink: 0 }}>{i + 1}</div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#f5f8ff', marginBottom: 2 }}>{d.processor}{d.value ? <span style={{ color: '#b78aff', fontWeight: 400 }}> · {d.value}</span> : ''}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(245,248,255,.52)', lineHeight: 1.5 }}>{d.reason}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
