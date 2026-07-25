@@ -152,14 +152,26 @@ def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
     try:
         update_job_progress(job_id, 10, "Loading audio file…")
         workspace = Path(file_data["workspace"])
+
+        # Load saved analysis for adaptive mastering (written by the analyze endpoint)
+        analysis_path = workspace / "analysis" / "analysis.json"
+        saved_analysis: dict = {}
+        if analysis_path.exists():
+            try:
+                saved_analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        dynamics = saved_analysis.get("dynamics") or None
+        spectral = saved_analysis.get("spectral_balance") or None
+
         renders = workspace / "renders"
         style_prev = renders / "style-preview.mp3"
         enhanced = renders / "enhanced.wav"
         cleaned = renders / "mix-cleaned.wav"
         input_path = style_prev if style_prev.exists() else enhanced if enhanced.exists() else cleaned if cleaned.exists() else Path(file_data["stored_path"])
         output_dir = renders
-        update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ…")
-        render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq)
+        update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ + adaptive corrections…")
+        render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq, dynamics=dynamics, spectral=spectral)
         update_job_progress(job_id, 90, "Encoding WAV + MP3…")
         result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
         if render.get("status") == "completed":

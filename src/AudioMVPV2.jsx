@@ -217,6 +217,63 @@ function SpectrumAnalyzer({ src, color = '#b78aff' }) {
   return <canvas ref={canvasRef} style={{ width: '100%', height: 72, borderRadius: 8, display: 'block', background: 'rgba(255,255,255,.03)', marginBottom: 8 }} />;
 }
 
+// Plays audio via Web Audio API with an optional gain offset (dB) for loudness matching.
+// gainDb < 0 attenuates — used to bring the louder master down to the original's level.
+function LoudnessMatchedPlayer({ src, gainDb = 0, color = '#b78aff' }) {
+  const audioRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const acRef = useRef(null);
+  const sourceConnectedRef = useRef(false);
+
+  // Build/rebuild the Web Audio graph whenever src changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+
+    // Tear down previous context
+    if (acRef.current) { acRef.current.close().catch(() => {}); }
+    sourceConnectedRef.current = false;
+
+    const ac = new Ctx();
+    acRef.current = ac;
+    const gainNode = ac.createGain();
+    gainNode.gain.value = Math.pow(10, gainDb / 20);
+    gainNode.connect(ac.destination);
+    gainNodeRef.current = gainNode;
+
+    const mediaSource = ac.createMediaElementSource(audio);
+    mediaSource.connect(gainNode);
+    sourceConnectedRef.current = true;
+
+    // Resume context on first play (browser autoplay policy)
+    const resume = () => { if (ac.state === 'suspended') ac.resume().catch(() => {}); };
+    audio.addEventListener('play', resume);
+    return () => {
+      audio.removeEventListener('play', resume);
+      ac.close().catch(() => {});
+    };
+  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply gain change without rebuilding the graph
+  useEffect(() => {
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = Math.pow(10, gainDb / 20);
+    }
+  }, [gainDb]);
+
+  return (
+    <audio
+      ref={audioRef}
+      key={src}
+      controls
+      src={src}
+      style={{ width: '100%', marginTop: 8 }}
+    />
+  );
+}
+
 function ProgressBar({ progress, label, color = '#55e9ff' }) {
   if (progress == null) return null;
   return (
@@ -1310,6 +1367,18 @@ export default function AudioMVPV2({ open, onClose }) {
                 </div>
               </div>
 
+              {masterRender?.adaptive_corrections?.length > 0 && (
+                <div style={{ ...card, marginBottom: 16, border: '1px solid rgba(85,233,255,.15)', background: 'rgba(85,233,255,.04)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#55e9ff', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Adaptive corrections applied to your mix</div>
+                  {masterRender.adaptive_corrections.map((note, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
+                      <span style={{ color: '#55e9ff', fontSize: 13, flexShrink: 0 }}>✦</span>
+                      <span style={{ fontSize: 12, color: 'rgba(245,248,255,.78)', lineHeight: 1.5 }}>{note}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {masterRender?.mix_notes && (
                 <div style={{ ...card, marginBottom: 16 }}>
                   <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Mix notes</div>
@@ -1359,25 +1428,50 @@ export default function AudioMVPV2({ open, onClose }) {
                 </div>
               )}
 
-              {masterPreviewUrl && (
-                <div style={{ ...card, marginBottom: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
-                      {abMode === 'original' ? 'Original upload' : '30-second master preview'}
+              {masterPreviewUrl && (() => {
+                // Loudness-matched A/B: compensate master volume so both sides play at equal perceived loudness.
+                // originalLufs comes from the upload analysis; targetLufs is the mastering target.
+                // The master gains +N LUFS in processing — we subtract that gain back during playback.
+                const origLufs = analysisData?.integrated_lufs;
+                const mastLufs = parseFloat(targetLufs);
+                const gainDb = (origLufs != null && !isNaN(mastLufs))
+                  ? origLufs - mastLufs  // negative = attenuate master to match original
+                  : 0;
+                const levelMatched = gainDb !== 0;
+                const abGainDb = abMode === 'master' ? gainDb : 0;
+
+                return (
+                  <div style={{ ...card, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
+                          {abMode === 'original' ? 'Original upload' : '30-second master preview'}
+                        </span>
+                        {levelMatched && (
+                          <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(87,240,156,.12)', color: '#57f09c', border: '1px solid rgba(87,240,156,.25)', borderRadius: 99, padding: '2px 8px', letterSpacing: 0.5 }}>
+                            LEVEL MATCHED
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
+                        {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
+                          <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
+                            style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
-                      {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
-                        <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
-                          style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                    {levelMatched && (
+                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginBottom: 10, lineHeight: 1.5 }}>
+                        Master attenuated {Math.abs(gainDb).toFixed(1)} dB to match your original's loudness — you're hearing quality difference, not volume difference.
+                      </div>
+                    )}
+                    <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
+                    <LoudnessMatchedPlayer key={abAudioUrl} src={abAudioUrl} gainDb={abGainDb} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
                   </div>
-                  <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
-                  <audio key={abAudioUrl} controls src={abAudioUrl} style={{ width: '100%', marginTop: 8 }} />
-                </div>
-              )}
+                );
+              })()}
 
               {masterPreviewUrl && (
                 <div style={{ ...card, marginBottom: 16 }}>
