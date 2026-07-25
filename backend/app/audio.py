@@ -411,12 +411,58 @@ def clean_vocals_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
     cleaned_mp3 = output_dir / "vocals-cleaned.mp3"
 
     filters = [
-        "highpass=f=80",
-        "lowpass=f=16000",
-        "afftdn=nf=-20",
-        "equalizer=f=7000:t=q:w=2.0:g=-3",
-        "acompressor=threshold=-18dB:ratio=2.5:attack=10:release=100:makeup=2",
-        "loudnorm=I=-16:TP=-1.5:LRA=8",
+        # ── Stage 1: Noise floor reduction ───────────────────────────────────
+        # Spectral denoising first — cleaner signal into every stage that follows.
+        "afftdn=nf=-25:nr=12",
+
+        # ── Stage 2: Corrective EQ ────────────────────────────────────────────
+        # High-pass removes low-end rumble, plosives, and proximity effect.
+        # Thin cut at 200 Hz removes boxy phone-mic coloration.
+        # Honk cut at 1 kHz reduces nasality in untreated rooms.
+        "highpass=f=80:poles=2",
+        "equalizer=f=200:t=q:w=1.0:g=-2.5",
+        "equalizer=f=1000:t=q:w=1.5:g=-1.5",
+
+        # ── Stage 3: Noise gate ───────────────────────────────────────────────
+        # Silences breath noise and room tone between phrases without clipping words.
+        # Fast attack (5 ms) / slow release (300 ms) so words breathe naturally.
+        "agate=threshold=0.015:ratio=8:attack=5:release=300:makeup=1",
+
+        # ── Stage 4: Optical-style compression (LA-2A emulation) ─────────────
+        # Slow attack (30 ms) lets transients through for natural consonants.
+        # High ratio + makeup = musical gain riding, not robotic limiting.
+        "acompressor=threshold=-22dB:ratio=3.5:attack=30:release=250:makeup=3:knee=6",
+
+        # ── Stage 5: Harmonic saturation ─────────────────────────────────────
+        # Subtle tanh clip (threshold 0.65 = very light) adds even harmonics
+        # that make vocals sound "recorded" rather than "captured".
+        "asoftclip=type=tanh:threshold=0.65",
+
+        # ── Stage 6: Presence & air lift ─────────────────────────────────────
+        # 3.2 kHz lift cuts through a beat without raising volume.
+        # 12 kHz shelf adds the "expensive mic" air quality.
+        "equalizer=f=3200:t=q:w=0.9:g=2.0",
+        "treble=g=1.8:f=12000",
+
+        # ── Stage 7: De-essing (two-band) ────────────────────────────────────
+        # 7 kHz handles 'S' and 'SH'; 9 kHz handles 'T' and 'CH'.
+        # Both are narrow notches — transparent on non-sibilant material.
+        "equalizer=f=7000:t=q:w=2.0:g=-2.5",
+        "equalizer=f=9000:t=q:w=1.8:g=-1.5",
+
+        # ── Stage 8: Low-pass (air-band protection) ───────────────────────────
+        # Removes digital hash and encoder artifacts above 16 kHz.
+        "lowpass=f=16000:poles=1",
+
+        # ── Stage 9: Short room reverb ───────────────────────────────────────
+        # Small room (echo 40 ms / decay 0.18) lifts the vocal off the grid
+        # without washing it out. Pre-delay keeps the dry transient upfront.
+        "aecho=0.85:0.88:40:0.18",
+
+        # ── Stage 10: Loudness normalisation ─────────────────────────────────
+        # −16 LUFS is the standard target for vocals in a mix.
+        # LRA=7 keeps dynamics tight so it sits consistently against the beat.
+        "loudnorm=I=-16:TP=-1.5:LRA=7",
     ]
 
     cmd = ["ffmpeg", "-y", "-i", str(input_path), "-af", ",".join(filters), "-ar", "44100", "-ac", "2", str(cleaned_wav)]
@@ -435,12 +481,17 @@ def clean_vocals_with_ffmpeg(input_path: Path, output_dir: Path) -> dict:
         "mp3_exists": cleaned_mp3.exists() if mp3_code == 0 else False,
         "filter_chain": ",".join(filters),
         "steps": [
-            "low-end rumble removal (80 Hz high-pass)",
-            "high-frequency rolloff (16 kHz low-pass)",
-            "AI noise floor reduction (afftdn −20 dB)",
-            "de-essing at 7 kHz (−3 dB notch)",
-            "light vocal compression (2.5:1 ratio)",
-            "loudness normalization (−16 LUFS / −1.5 dBTP)",
+            "spectral noise reduction — cleans the floor before any EQ (afftdn −25 dB)",
+            "corrective EQ — rumble cut at 80 Hz, boxy cut at 200 Hz, nasal cut at 1 kHz",
+            "noise gate — silences breath and room tone between phrases (8:1 ratio)",
+            "optical compression — LA-2A style, 3.5:1 slow attack, lets consonants breathe",
+            "harmonic saturation — subtle tanh adds warmth and 'glue' (threshold 0.65)",
+            "presence lift — +2 dB at 3.2 kHz cuts through the beat",
+            "air shelf — +1.8 dB at 12 kHz adds expensive-mic openness",
+            "two-band de-essing — 7 kHz (S/SH) + 9 kHz (T/CH)",
+            "air-band low-pass — removes digital hash above 16 kHz",
+            "short room reverb — 40 ms pre-delay, lifts vocal off the grid",
+            "loudness normalisation — −16 LUFS / −1.5 dBTP / LRA 7",
         ],
     }
 
@@ -574,17 +625,31 @@ def mix_vocal_beat_with_ffmpeg(
     mixed_wav = output_dir / "mixed.wav"
     mixed_mp3 = output_dir / "mixed.mp3"
 
-    # Vocal chain: volume → optional presence & air EQ → optional reverb
-    vocal_filters = [f"volume={vg}"]
+    # Vocal chain: full professional processing before the mix bus
+    vocal_filters = [
+        f"volume={vg}",                                             # gain staging
+        "afftdn=nf=-22:nr=10",                                     # noise floor cleanup
+        "highpass=f=80:poles=2",                                   # rumble / proximity cut
+        "equalizer=f=200:t=q:w=1.0:g=-2.0",                       # boxy room cut
+        "equalizer=f=1000:t=q:w=1.5:g=-1.2",                      # nasal cut
+        "agate=threshold=0.015:ratio=8:attack=5:release=250",      # breath / room noise gate
+        "acompressor=threshold=-22dB:ratio=3.5:attack=30:release=250:makeup=3:knee=6",  # optical style
+        "asoftclip=type=tanh:threshold=0.65",                      # harmonic saturation
+    ]
     if vocal_presence_boost:
         vocal_filters += [
-            "equalizer=f=3500:t=q:w=1.0:g=2.5",  # presence cut-through
-            "treble=g=1.5:f=12000",                 # air shelf
+            "equalizer=f=3200:t=q:w=0.9:g=2.0",   # presence — cuts through the beat
+            "treble=g=1.8:f=12000",                  # air shelf
         ]
+    # Two-band de-essing (always applied)
+    vocal_filters += [
+        "equalizer=f=7000:t=q:w=2.0:g=-2.5",      # 'S'/'SH' sibilance
+        "equalizer=f=9000:t=q:w=1.8:g=-1.5",      # 'T'/'CH' sibilance
+    ]
     if rv > 0.05:
-        delay_ms = round(40 + rv * 160)          # 40ms (tight room) → 200ms (large hall)
-        decay = round(0.15 + rv * 0.45, 2)       # 0.15 (subtle) → 0.60 (lush)
-        vocal_filters.append(f"aecho=0.8:0.88:{delay_ms}:{decay}")
+        delay_ms = round(40 + rv * 120)            # 40 ms (room) → 160 ms (hall)
+        decay = round(0.12 + rv * 0.35, 2)         # lighter than standalone: stays in the mix
+        vocal_filters.append(f"aecho=0.85:0.88:{delay_ms}:{decay}")
     vocal_chain = f"[0:a]{','.join(vocal_filters)}[v]"
 
     # Beat chain: volume → optional stereo widening
