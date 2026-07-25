@@ -1367,6 +1367,18 @@ export default function AudioMVPV2({ open, onClose }) {
                 </div>
               </div>
 
+              {masterRender?.adaptive_corrections?.length > 0 && (
+                <div style={{ ...card, marginBottom: 16, border: '1px solid rgba(85,233,255,.15)', background: 'rgba(85,233,255,.04)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#55e9ff', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Adaptive corrections applied to your mix</div>
+                  {masterRender.adaptive_corrections.map((note, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
+                      <span style={{ color: '#55e9ff', fontSize: 13, flexShrink: 0 }}>✦</span>
+                      <span style={{ fontSize: 12, color: 'rgba(245,248,255,.78)', lineHeight: 1.5 }}>{note}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {masterRender?.mix_notes && (
                 <div style={{ ...card, marginBottom: 16 }}>
                   <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>Mix notes</div>

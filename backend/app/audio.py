@@ -731,6 +731,72 @@ def _genre_filters(genre_key: str, intensity: float) -> tuple[list[str], float, 
     )
 
 
+def _adaptive_spectral_eq(spectral: dict, dynamics: dict) -> tuple[list[str], float, list[str]]:
+    """
+    Maps real spectral + dynamics measurements to corrective filters applied ON TOP of the genre preset.
+    Returns (extra_filters, compress_ratio_delta, human_readable_notes).
+    """
+    extra: list[str] = []
+    ratio_delta = 0.0
+    notes: list[str] = []
+
+    sub        = spectral.get("sub")
+    bass       = spectral.get("bass")
+    low_mid    = spectral.get("low_mid")
+    upper_mid  = spectral.get("upper_mid")
+    presence   = spectral.get("presence")
+    air        = spectral.get("air")
+
+    crest      = dynamics.get("crest_factor_db")
+    dyn_range  = dynamics.get("dynamic_range_db")
+    noise_floor = dynamics.get("noise_floor_db")
+
+    # Noise floor — prepend denoising before all EQ
+    if noise_floor is not None and noise_floor > -50:
+        extra.append("afftdn=nf=-20:nr=10")
+        notes.append(f"Noise floor at {noise_floor} dB — spectral denoising applied before EQ chain")
+
+    # Sub buildup — bump HPF and add a sub shelf cut proportional to the excess
+    if sub is not None and sub > -20:
+        excess = min(sub + 20, 6)
+        cut = round(max(1.0, excess * 0.5), 1)
+        extra.append("highpass=f=40")
+        extra.append(f"equalizer=f=45:t=q:w=0.8:g=-{cut}")
+        notes.append(f"Sub buildup at {sub} dB — HPF raised to 40 Hz, sub shelf cut −{cut} dB at 45 Hz")
+
+    # Low-mid mud — corrective cut proportional to how far it protrudes above the bass band
+    if low_mid is not None and bass is not None and low_mid > bass + 3:
+        excess = min(low_mid - bass - 3, 6)
+        cut = round(max(1.0, excess * 0.4), 1)
+        extra.append(f"equalizer=f=350:t=q:w=1.2:g=-{cut}")
+        notes.append(f"Low-mid buildup ({low_mid} dB vs bass {bass} dB) — mud cut −{cut} dB at 350 Hz")
+
+    # Harsh presence — extra de-essing beyond the static 8 kHz notch
+    if presence is not None and upper_mid is not None and presence > upper_mid + 4:
+        excess = min(presence - upper_mid - 4, 6)
+        cut = round(max(1.0, excess * 0.4), 1)
+        extra.append(f"equalizer=f=7500:t=q:w=1.5:g=-{cut}")
+        notes.append(f"Harsh presence ({presence} dB vs upper-mid {upper_mid} dB) — extra de-ess −{cut} dB at 7.5 kHz")
+
+    # Dull air — gentle high-shelf lift, capped at 2 dB so it never sounds hyped
+    if air is not None and air < -42:
+        deficit = min(-42 - air, 10)
+        boost = round(min(deficit * 0.15, 2.0), 1)
+        if boost >= 0.5:
+            extra.append(f"treble=g={boost}:f=12000")
+            notes.append(f"Air band thin ({air} dB) — high-shelf lift +{boost} dB at 12 kHz")
+
+    # Over-compressed source — back off bus compression so we don't crush transients further
+    if crest is not None and crest < 8:
+        ratio_delta = -0.8
+        notes.append(f"Low crest factor ({crest} dB) — bus compression ratio reduced by 0.8 to preserve transients")
+    elif dyn_range is not None and dyn_range < 10:
+        ratio_delta = -0.4
+        notes.append(f"Compressed dynamic range ({dyn_range} dB) — slightly lighter bus compression")
+
+    return extra, ratio_delta, notes
+
+
 def render_style_preview_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, warmth: float = 0.3) -> dict:
     """Fast 30-second style preview — genre EQ + saturation + basic normalization only, no full master render."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -780,7 +846,7 @@ def render_style_preview_with_ffmpeg(input_path: Path, output_dir: Path, mode: s
     }
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0) -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0, dynamics: dict | None = None, spectral: dict | None = None) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -803,6 +869,13 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
 
     genre_eq, compress_ratio, compress_threshold, stereo_width = _genre_filters(genre_key, intensity)
 
+    # Adaptive corrections driven by real spectral + dynamics measurements
+    adaptive_filters: list[str] = []
+    adaptive_notes: list[str] = []
+    if dynamics or spectral:
+        adaptive_filters, ratio_delta, adaptive_notes = _adaptive_spectral_eq(spectral or {}, dynamics or {})
+        compress_ratio = round(max(1.2, compress_ratio + ratio_delta), 2)
+
     makeup = round(1.0 + intensity * 1.2, 2)
     # True-peak ceiling ~ -1 dBTP (0.891 linear), opening slightly with strength
     limit = round(0.89 + intensity * 0.04, 3)
@@ -817,6 +890,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     filters: list[str] = [
         "highpass=f=30",                                          # remove sub-bass rumble
         "lowpass=f=19000",                                        # gentle top rolloff
+        *adaptive_filters,                                        # measurement-driven corrective EQ (before genre shaping)
         *genre_eq,                                                # genre-specific EQ shaping
         # Analog warmth: boost signal INTO tanh clipper, loudnorm corrects output level
         *(
@@ -887,13 +961,15 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "loudness_report": loudness_report,
         "frequency_balance": frequency_balance,
         "mix_notes": mix_notes,
+        "adaptive_corrections": adaptive_notes,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
+            *(adaptive_notes) if adaptive_notes else [],
             f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
             f"analog saturation — {warmth_label} (tanh soft-clip)",
             f"user EQ — low {low_eq:+.1f} dB · mid {mid_eq:+.1f} dB · high {high_eq:+.1f} dB",
             "sibilance control (8 kHz, always on)",
-            "transparent soft-knee compression",
+            f"bus compression — {compress_ratio}:1 ratio (adaptive)",
             "stereo widening",
             "streaming loudness normalisation",
             "true-peak limiting (-1 dBTP)",
