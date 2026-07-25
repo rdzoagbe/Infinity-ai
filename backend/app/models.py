@@ -108,6 +108,20 @@ class AiAnalyzeRequest(BaseModel):
     genre: str = "Custom AI adaptive"
 
 
+class AudioProblem(BaseModel):
+    band: str
+    severity: str  # "low" | "medium" | "high"
+    description: str
+    value: float | None = None
+
+
+class ProcessingDecision(BaseModel):
+    processor: str
+    action: str
+    reason: str
+    value: str | None = None
+
+
 class ProjectCreateRequest(BaseModel):
     title: str
     artist: str = "Unknown Artist"

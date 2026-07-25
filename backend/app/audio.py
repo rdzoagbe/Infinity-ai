@@ -95,6 +95,171 @@ def measure_lufs(input_path: Path) -> dict:
     return {}
 
 
+def analyze_dynamics_via_astats(path: Path) -> dict:
+    """Measure RMS, crest factor, dynamic range, and noise floor via ffmpeg astats."""
+    if not has_ffmpeg():
+        return {}
+    code, stdout, stderr = run_command(
+        ["ffmpeg", "-y", "-i", str(path), "-af", "astats=metadata=1:reset=1,ametadata=print:file=-", "-f", "null", "/dev/null"],
+        timeout=120,
+    )
+    # astats prints to stderr
+    output = stderr + stdout
+    def _extract(key: str) -> float | None:
+        for line in output.splitlines():
+            if key in line and "=" in line:
+                try:
+                    return float(line.split("=")[-1].strip())
+                except ValueError:
+                    pass
+        return None
+
+    rms_level = _extract("RMS_level")
+    rms_peak = _extract("RMS_peak")
+    crest_factor = _extract("Crest_factor")
+    flat_factor = _extract("Flat_factor")
+    peak_level = _extract("Peak_level")
+    noise_floor = _extract("Noise_floor")
+
+    result = {}
+    if rms_level is not None:
+        result["rms_db"] = round(rms_level, 1)
+    if crest_factor is not None:
+        result["crest_factor_db"] = round(crest_factor, 1)
+    if peak_level is not None:
+        result["peak_db"] = round(peak_level, 1)
+    if noise_floor is not None:
+        result["noise_floor_db"] = round(noise_floor, 1)
+    if rms_level is not None and noise_floor is not None and noise_floor < 0:
+        result["dynamic_range_db"] = round(rms_level - noise_floor, 1)
+    return result
+
+
+def analyze_spectral_balance(path: Path) -> dict:
+    """Measure energy in 7 frequency bands using bandpass filters + astats."""
+    if not has_ffmpeg():
+        return {}
+
+    bands = [
+        ("sub",       "20",   "60"),
+        ("bass",      "60",   "250"),
+        ("low_mid",   "250",  "500"),
+        ("mid",       "500",  "2000"),
+        ("upper_mid", "2000", "5000"),
+        ("presence",  "5000", "10000"),
+        ("air",       "10000","20000"),
+    ]
+
+    filters_parts = []
+    outputs = []
+    for name, low, high in bands:
+        tag = f"[{name}]"
+        outputs.append(tag)
+        filters_parts.append(
+            f"[0:a]bandpass=f={(int(low)+int(high))//2}:width_type=h:width={int(high)-int(low)}{tag}"
+        )
+
+    result = {}
+    for name, low, high in bands:
+        center = (int(low) + int(high)) // 2
+        width = int(high) - int(low)
+        code, _out, stderr = run_command(
+            ["ffmpeg", "-y", "-i", str(path),
+             "-af", f"bandpass=f={center}:width_type=h:width={width},astats=metadata=1:reset=1,ametadata=print:file=-",
+             "-f", "null", "/dev/null"],
+            timeout=60,
+        )
+        combined = stderr + _out
+        rms = None
+        for line in combined.splitlines():
+            if "RMS_level" in line and "=" in line:
+                try:
+                    rms = float(line.split("=")[-1].strip())
+                    break
+                except ValueError:
+                    pass
+        result[name] = round(rms, 1) if rms is not None else None
+
+    return result
+
+
+def build_processing_decisions(lufs: dict, dynamics: dict, spectral: dict, genre_key: str) -> dict:
+    """Map real measurements to actionable processing decisions with plain-language explanations."""
+    problems = []
+    decisions = []
+
+    integrated_lufs = lufs.get("integrated_lufs")
+    true_peak = lufs.get("true_peak_dbtp")
+    lra = lufs.get("lra")
+    rms_db = dynamics.get("rms_db")
+    crest_factor = dynamics.get("crest_factor_db")
+    dynamic_range = dynamics.get("dynamic_range_db")
+    noise_floor = dynamics.get("noise_floor_db")
+
+    # --- Loudness & dynamics problems ---
+    if integrated_lufs is not None and integrated_lufs < -20:
+        problems.append({"band": "loudness", "severity": "high", "description": f"Track is very quiet at {integrated_lufs} LUFS — will sound weak on streaming platforms", "value": integrated_lufs})
+        decisions.append({"processor": "Loudness", "action": "Gain stage boost", "reason": f"Input level at {integrated_lufs} LUFS needs to be raised before mastering chain", "value": f"{integrated_lufs} → target −14 LUFS"})
+
+    if true_peak is not None and true_peak > -1.0:
+        problems.append({"band": "peak", "severity": "high", "description": f"True peak at {true_peak} dBTP exceeds −1 dBTP — clipping risk on streaming encoders", "value": true_peak})
+        decisions.append({"processor": "True-Peak Limiter", "action": "Ceiling set to −1.0 dBTP", "reason": f"Peak at {true_peak} dBTP would cause inter-sample distortion after streaming codec re-encode", "value": f"{true_peak} dBTP → −1.0 dBTP"})
+
+    if lra is not None and lra < 3.0:
+        problems.append({"band": "dynamics", "severity": "medium", "description": f"Loudness range only {lra} LU — track may sound flat and lifeless", "value": lra})
+        decisions.append({"processor": "Bus Compressor", "action": "Lighter ratio (1.5:1) to restore punch", "reason": f"LRA of {lra} LU is over-compressed; backing off will reveal transient detail", "value": f"{lra} LU measured"})
+
+    if crest_factor is not None and crest_factor < 8.0:
+        problems.append({"band": "transients", "severity": "medium", "description": f"Low crest factor ({crest_factor} dB) — transients may be over-compressed", "value": crest_factor})
+
+    if noise_floor is not None and noise_floor > -50.0:
+        problems.append({"band": "noise", "severity": "low", "description": f"Elevated noise floor at {noise_floor} dB — background hiss present", "value": noise_floor})
+        decisions.append({"processor": "Noise Reduction", "action": "Spectral denoising (−20 dB NR)", "reason": f"Noise floor at {noise_floor} dB will become audible in quiet passages", "value": f"{noise_floor} dB floor"})
+
+    # --- Spectral balance problems ---
+    sub = spectral.get("sub")
+    bass = spectral.get("bass")
+    low_mid = spectral.get("low_mid")
+    mid = spectral.get("mid")
+    upper_mid = spectral.get("upper_mid")
+    presence = spectral.get("presence")
+    air = spectral.get("air")
+
+    if sub is not None and sub > -20:
+        problems.append({"band": "sub (20-60 Hz)", "severity": "medium", "description": f"Heavy sub-bass energy at {sub} dB may overwhelm small speakers and cause masking", "value": sub})
+        decisions.append({"processor": "High-Pass Filter", "action": f"High-pass at 30 Hz, sub shelf cut", "reason": f"Sub at {sub} dB will cause pumping on earbuds and cheap speakers", "value": f"{sub} dB measured"})
+
+    if low_mid is not None and bass is not None and low_mid > bass + 3:
+        problems.append({"band": "low-mid (250-500 Hz)", "severity": "medium", "description": f"Low-mid buildup at {low_mid} dB causes boxy, muffled sound", "value": low_mid})
+        decisions.append({"processor": "EQ", "action": f"Cut −2 to −3 dB around 300-400 Hz", "reason": f"Low-mid at {low_mid} dB vs bass at {bass} dB creates boxy buildup that masks clarity", "value": f"−{round(low_mid - bass - 1, 1)} dB at 350 Hz"})
+
+    if presence is not None and upper_mid is not None and presence > upper_mid + 4:
+        problems.append({"band": "presence (5-10 kHz)", "severity": "medium", "description": f"Harsh presence peak at {presence} dB — will cause ear fatigue", "value": presence})
+        decisions.append({"processor": "De-esser / EQ", "action": "Notch −1.5 dB at 7-8 kHz", "reason": f"Presence at {presence} dB vs upper-mid at {upper_mid} dB creates harsh sibilance", "value": f"{presence} dB measured"})
+
+    if air is not None and air < -40:
+        problems.append({"band": "air (10-20 kHz)", "severity": "low", "description": f"Dull top-end at {air} dB — track lacks openness and sparkle", "value": air})
+        decisions.append({"processor": "Air EQ", "action": "High-shelf boost +1.5 dB at 12 kHz", "reason": f"Air band at {air} dB is thin — adding subtle high-shelf lift will open the top-end", "value": f"{air} dB measured"})
+
+    # --- Genre-specific decisions ---
+    genre_decisions = {
+        "trap": {"processor": "Sub EQ", "action": "Boost at 60 Hz, cut mud at 200 Hz", "reason": "Trap genre needs defined 808 sub punch with a clean upper-bass", "value": None},
+        "drill": {"processor": "Sub EQ", "action": "Boost at 55 Hz, darken top above 9 kHz", "reason": "Drill uses deep sliding 808 sub — upper-mid cut keeps it heavy not harsh", "value": None},
+        "afrobeat": {"processor": "Mid EQ", "action": "Lift 280 Hz for warmth, 4 kHz for vocal presence", "reason": "Afrobeat groove sits in the low-mid warmth with percussive high-mid energy", "value": None},
+        "gospel": {"processor": "Dynamics", "action": "Preserve choir dynamics (light 2:1 compression)", "reason": "Gospel relies on emotional swells — heavy compression kills the choir lift", "value": None},
+        "cinematic": {"processor": "Stereo Width", "action": "Expand stereo to ×1.6 for orchestral depth", "reason": "Cinematic music needs a wide, enveloping soundstage", "value": None},
+        "soul": {"processor": "Saturation", "action": "Subtle tape warmth on bass and vocals", "reason": "Soul music benefits from vintage harmonic coloring — keeps it organic not digital", "value": None},
+    }
+    if genre_key in genre_decisions:
+        decisions.append(genre_decisions[genre_key])
+
+    return {
+        "problems": problems,
+        "decisions": decisions,
+        "summary": f"Found {len(problems)} issue(s). Applied {len(decisions)} processing decision(s).",
+    }
+
+
 def estimate_music_traits(filename: str, metadata: dict) -> dict:
     seed = sum(ord(c) for c in filename)
     duration = int(metadata.get("duration_seconds") or 0)
@@ -114,6 +279,10 @@ def estimate_music_traits(filename: str, metadata: dict) -> dict:
 def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict) -> dict:
     traits = estimate_music_traits(filename, metadata)
     lufs = measure_lufs(path)
+    dynamics = analyze_dynamics_via_astats(path)
+    spectral = analyze_spectral_balance(path)
+    genre_key = traits.get("estimated_genre", "custom").lower().split()[0]
+    processing = build_processing_decisions(lufs, dynamics, spectral, genre_key)
     duration = metadata.get("duration_seconds")
     sample_rate = metadata.get("sample_rate")
     bitrate = metadata.get("bitrate")
@@ -138,6 +307,9 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         },
         **traits,
         **lufs,
+        "dynamics": dynamics,
+        "spectral_balance": spectral,
+        "processing_decisions": processing,
         "note": "Infinity v10 analysis. FFprobe/mutagen metadata is real; BPM/key/genre remain heuristic until Librosa/Essentia integration.",
     }
 
