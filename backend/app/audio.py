@@ -1029,7 +1029,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         "adaptive_corrections": adaptive_notes,
         "steps": [
             "sub-bass cleanup (30 Hz HPF)",
-            *(adaptive_notes) if adaptive_notes else [],
+            *(adaptive_notes if adaptive_notes else []),
             f"genre EQ — {genre_key.title()} tonal shaping (EQ + compression character)",
             f"analog saturation — {warmth_label} (tanh soft-clip)",
             f"user EQ — low {low_eq:+.1f} dB · mid {mid_eq:+.1f} dB · high {high_eq:+.1f} dB",
