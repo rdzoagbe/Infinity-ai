@@ -529,9 +529,14 @@ export default function AuthDashboardV122({ children }) {
   useEffect(() => { currentProjectRef.current = currentProject; }, [currentProject]);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
   useEffect(() => {
-    const handler = () => setStudioOpen(false);
-    window.addEventListener('infinity:close-studio', handler);
-    return () => window.removeEventListener('infinity:close-studio', handler);
+    const openHandler = () => setStudioOpen(true);
+    const closeHandler = () => setStudioOpen(false);
+    window.addEventListener('infinity:open-studio', openHandler);
+    window.addEventListener('infinity:close-studio', closeHandler);
+    return () => {
+      window.removeEventListener('infinity:open-studio', openHandler);
+      window.removeEventListener('infinity:close-studio', closeHandler);
+    };
   }, []);
 
   const replaceProject = (updated) => { const normalized = normalizeProject(updated); setCurrentProject((current) => current?.id === normalized.id ? normalized : current); setProjects((current) => current.map((project) => project.id === normalized.id ? normalized : project)); return normalized; };
@@ -557,5 +562,5 @@ export default function AuthDashboardV122({ children }) {
 
   if (!profile) return <StartPrivateSession onLogin={setProfile} />;
   if (studioOpen) return <StudioShell onBack={() => { setStudioOpen(false); window.dispatchEvent(new CustomEvent('infinity:close-studio')); refreshProjects().catch(() => {}); }} project={currentProject} cloudMode={cloudMode}>{children}</StudioShell>;
-  return <><Dashboard profile={profile} projects={projects} onCreate={() => setShowCreate(true)} onLogout={logout} onOpenProject={openProject} onDeleteProject={deleteProject} cloudMode={cloudMode} loading={loading} error={error} />{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} cloudMode={cloudMode} /> : null}</>;
+  return <>{children}{showCreate ? <CreateProjectModal onClose={() => setShowCreate(false)} onCreate={createProject} cloudMode={cloudMode} /> : null}</>;
 }
