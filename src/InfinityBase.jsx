@@ -116,37 +116,134 @@ function fallbackSounds(prompt, intensity, variation = 0) {
 
 // ─── Pages ────────────────────────────────────────────────────────────────────
 
+const SPEC_BANDS = [
+  { label: 'Sub', h: 35, flag: false },
+  { label: 'Bass', h: 68, flag: false },
+  { label: 'Lo-mid', h: 82, flag: true },
+  { label: 'Mid', h: 55, flag: false },
+  { label: 'Hi-mid', h: 48, flag: false },
+  { label: 'Pres', h: 44, flag: false },
+  { label: 'Air', h: 22, flag: true },
+];
+
+const FEATURES = [
+  {
+    icon: SlidersHorizontal,
+    color: '#55e9ff',
+    title: 'Real spectral analysis',
+    desc: '7-band ffmpeg scan measures actual energy levels — sub, bass, lo-mids, mids, presence, and air — before any processing begins.',
+  },
+  {
+    icon: Sparkles,
+    color: '#9062ff',
+    title: 'Adaptive mastering',
+    desc: 'Measurements feed directly into the EQ chain. Muddy lo-mids get a targeted cut. Missing air gets a precise shelf lift. Your track, not a template.',
+  },
+  {
+    icon: Mic2,
+    color: '#ff4de1',
+    title: '11-stage vocal chain',
+    desc: 'Denoising → HPF → corrective EQ → gate → optical compression → saturation → presence → de-essing → limiting — studio-grade, automated.',
+  },
+  {
+    icon: Play,
+    color: '#55e9ff',
+    title: 'Loudness-matched A/B',
+    desc: 'Web Audio API GainNode levels the original and master to identical loudness so you hear the real difference — not just "louder = better."',
+  },
+];
+
+function SpectrumCard() {
+  return (
+    <Card className="cinema">
+      <div className="orb one" /><div className="orb two" /><div className="orb three" />
+      <p className="eyebrow" style={{ marginBottom: 12 }}>Spectral analysis · live per track</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5, alignItems: 'flex-end', height: 88 }}>
+        {SPEC_BANDS.map(b => (
+          <div key={b.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+            <div style={{
+              width: '100%',
+              height: `${b.h}%`,
+              borderRadius: '4px 4px 0 0',
+              background: b.flag
+                ? 'linear-gradient(180deg,#ff4de1,rgba(255,77,225,.28))'
+                : 'linear-gradient(180deg,#55e9ff,rgba(85,233,255,.28))',
+              boxShadow: b.flag ? '0 0 14px rgba(255,77,225,.35)' : '0 0 14px rgba(85,233,255,.22)',
+            }} />
+            <span style={{ fontSize: 9, color: b.flag ? '#ff4de1' : 'rgba(245,248,255,.45)', fontWeight: 800 }}>{b.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,.07)', paddingTop: 14 }}>
+        <p className="eyebrow" style={{ marginBottom: 10 }}>Adaptive corrections</p>
+        {[
+          { color: '#ff4de1', text: 'Lo-mid mud cut at 350 Hz (−3 dB Q 1.4)' },
+          { color: '#ff4de1', text: 'Air shelf lift at 12 kHz (+1.5 dB)' },
+          { color: '#55e9ff', text: 'Genre EQ — Hip-hop tonal shaping' },
+          { color: '#9062ff', text: 'Target −9 LUFS · true peak −1 dBTP' },
+        ].map((c, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 7 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: c.color, flexShrink: 0, boxShadow: `0 0 6px ${c.color}` }} />
+            <span style={{ fontSize: 12, color: 'rgba(245,248,255,.68)', fontFamily: 'monospace' }}>{c.text}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+        {WORKFLOW_STEPS.map(s => (
+          <span key={s.n} style={{ border: '1px solid rgba(85,233,255,.22)', background: 'rgba(85,233,255,.08)', color: '#55e9ff', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 800 }}>
+            {s.n}. {s.label}
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function HomePage({ go }) {
   return (
     <div className="stack">
       <section className="hero">
-        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
-          <span className="pill">Infinity · Beta</span>
-          <h1>Upload. Shape.<br /><span>Master.</span></h1>
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 20, justifyContent: 'center' }}
+        >
+          <span className="pill"><Sparkles size={12} style={{ marginRight: 4 }} /> Grammy-level DSP · Free</span>
+          <h1>Your track.<br /><span>Release-ready.</span></h1>
           <p className="lead">
-            Drop your track, pick your sound, and get a release-ready master in minutes — cleaned, shaped, and loud enough for any platform.
+            Upload your mix and Infinity runs a real 7-band spectral scan, measures dynamics, and builds an adaptive mastering chain that corrects <em>your</em> specific audio — not a generic preset.
           </p>
           <div className="actions">
-            <button className="primary"><Mic2 size={18} /> Open Studio</button>
+            <button className="primary" style={{ fontSize: 15, padding: '13px 22px' }}>
+              <Mic2 size={18} /> Master your track free
+            </button>
             <button className="secondary" data-infinity-local-action="true" onClick={() => go('sounds')}>
               <Sparkles size={18} /> Generate Sounds
             </button>
           </div>
-        </motion.div>
-
-        <Card className="cinema">
-          <div className="orb one" /><div className="orb two" /><div className="orb three" />
-          <h3>Your workflow</h3>
-          <Bars />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
-            {WORKFLOW_STEPS.map(s => (
-              <span key={s.n} style={{ border: '1px solid rgba(85,233,255,.22)', background: 'rgba(85,233,255,.08)', color: '#55e9ff', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 800 }}>
-                {s.n}. {s.label}
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 2 }}>
+            {['Real measurements', 'Adaptive EQ', 'Loudness-matched A/B', '11-stage vocal chain'].map(t => (
+              <span key={t} style={{ color: 'rgba(245,248,255,.55)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ color: '#55e9ff', fontWeight: 900, fontSize: 14 }}>✓</span> {t}
               </span>
             ))}
           </div>
-        </Card>
+        </motion.div>
+
+        <SpectrumCard />
       </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+        {FEATURES.map(f => (
+          <Card key={f.title}>
+            <f.icon size={22} style={{ color: f.color, marginBottom: 10 }} />
+            <h3 style={{ margin: '0 0 7px', fontSize: 15 }}>{f.title}</h3>
+            <p style={{ color: 'rgba(245,248,255,.58)', margin: 0, lineHeight: 1.6, fontSize: 14 }}>{f.desc}</p>
+          </Card>
+        ))}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
         {WORKFLOW_STEPS.map(s => (
