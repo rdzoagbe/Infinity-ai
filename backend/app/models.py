@@ -21,6 +21,7 @@ class JobType(str, Enum):
     clean_vocals = "clean_vocals"
     mix_vocal_beat = "mix_vocal_beat"
     analyze_ai = "analyze_ai"
+    transform_style = "transform_style"
 
 
 class AudioFileMetadata(BaseModel):
@@ -35,6 +36,7 @@ class AudioFileMetadata(BaseModel):
 class Job(BaseModel):
     job_id: str
     job_type: JobType
+    user_id: str = ""
     status: JobStatus = JobStatus.queued
     message: str = "Queued"
     progress: int = 0
