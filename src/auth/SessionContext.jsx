@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createCloudProject, deleteCloudProject, getSupabaseSession, isSupabaseConfigured,
-  listCloudProjects, signOutSupabase, supabase,
+  listCloudProjects, signOutSupabase, supabase, updateCloudProject,
   appendCloudProjectFile, appendCloudProjectSound,
 } from '../api/supabaseClient.js';
 
@@ -160,6 +160,18 @@ export function SessionProvider({ children }) {
       const project = targetProject();
       if (!project) return;
       const record = { id: event.detail?.id || event.detail?.asset_id || makeId('asset'), ...event.detail, linked_at: new Date().toISOString() };
+      // Version numbering: renders of the same kind count up per project
+      // (Mix v1, Mix v2, Master v1 …). The version record keeps parameters,
+      // chain and QC data so settings can be restored later.
+      const VERSION_KINDS = { 'master': 'Master', 'mix-render': 'Mix', 'clean': 'Clean' };
+      const kindLabel = VERSION_KINDS[record.type];
+      if (kindLabel) {
+        const existing = (Array.isArray(project.analysis?.generated_sounds) ? project.analysis.generated_sounds : [])
+          .filter((a) => a.type === record.type).length;
+        record.version = existing + 1;
+        record.version_label = `${kindLabel} v${existing + 1}`;
+        record.status = record.status || 'completed';
+      }
       if (cloudMode) {
         try { replaceProject(await appendCloudProjectSound(project, record)); }
         catch (err) { setError(err.message || 'Could not save asset to cloud project.'); }
@@ -212,6 +224,23 @@ export function SessionProvider({ children }) {
     setProjects((current) => current.filter((p) => p.id !== id));
   };
 
+  // Update or remove a version/asset record inside a project's library.
+  const updateProjectAsset = async (projectId, assetId, updater) => {
+    const project = projectsRef.current.find((p) => p.id === projectId);
+    if (!project) return;
+    const list = Array.isArray(project.analysis?.generated_sounds) ? project.analysis.generated_sounds : [];
+    const nextList = updater === null
+      ? list.filter((a) => a.id !== assetId)
+      : list.map((a) => (a.id === assetId ? { ...a, ...updater(a) } : a));
+    const nextAnalysis = { ...(project.analysis || {}), generated_sounds: nextList };
+    if (cloudMode) {
+      try { replaceProject(await updateCloudProject(project.id, { analysis: nextAnalysis })); }
+      catch (err) { setError(err.message || 'Could not update the version record.'); }
+      return;
+    }
+    localUpdateProject(projectId, (p) => ({ ...p, analysis: nextAnalysis }));
+  };
+
   const refreshProjects = async () => {
     if (cloudMode && profile?.id) {
       setLoading(true);
@@ -224,7 +253,7 @@ export function SessionProvider({ children }) {
 
   const value = useMemo(() => ({
     profile, login, logout,
-    projects, createProject, deleteProject, refreshProjects, replaceProject, localUpdateProject,
+    projects, createProject, deleteProject, refreshProjects, replaceProject, localUpdateProject, updateProjectAsset,
     activeProjectId, setActiveProjectId,
     cloudMode, demoMode, loading, error, setError,
     // Data mode drives honest labelling in the UI:

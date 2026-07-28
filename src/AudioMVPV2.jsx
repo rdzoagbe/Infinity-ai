@@ -17,6 +17,7 @@ import {
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
+import { exportPackageOnBackend } from './api/infinityBackend.js';
 import VocalBeatMixer from './studio/VocalBeatMixer.jsx';
 import AnalysisPanel, { QcComparison } from './studio/AnalysisPanel.jsx';
 import ABPlayer from './studio/ABPlayer.jsx';
@@ -445,6 +446,8 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
   const [aiAnalysisProgress, setAiAnalysisProgress] = useState(null);
 
   const [restoredName, setRestoredName] = useState('');
+  const [exportPack, setExportPack] = useState(null);
+  const [exportBusy, setExportBusy] = useState(false);
   const songUrlRef = useRef('');
 
   // Save session whenever key state changes
@@ -458,6 +461,22 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
     if (!open) return;
     checkBackendHealth().then(() => setBackendOnline(true)).catch(() => setBackendOnline(false));
     if (songBackend?.file_id) return; // already has a song loaded
+    // Restore master settings saved from a version's "restore settings"
+    try {
+      const restored = JSON.parse(localStorage.getItem('infinity_restored_master_params_v1') || 'null');
+      if (restored) {
+        if (restored.mode) setMode(restored.mode);
+        if (restored.platform) setPlatform(restored.platform);
+        if (restored.strength != null) setStrength(restored.strength);
+        if (restored.warmth != null) setWarmth(Math.round(restored.warmth * 100));
+        if (restored.lowEq != null) setLowEq(restored.lowEq);
+        if (restored.midEq != null) setMidEq(restored.midEq);
+        if (restored.highEq != null) setHighEq(restored.highEq);
+        if (restored.targetLufs !== undefined) setMasterTargetLufs(restored.targetLufs);
+        if (restored.tpCeiling !== undefined) setMasterTpCeiling(restored.tpCeiling);
+        localStorage.removeItem('infinity_restored_master_params_v1');
+      }
+    } catch {}
     const saved = loadSession();
     if (!saved?.songBackend?.file_id) return;
     setSongBackend(saved.songBackend);
@@ -804,6 +823,13 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
           mode,
           strength: s,
           target_lufs: job?.result?.target_lufs,
+          parameters: {
+            mode, strength: s, platform, warmth: warmth / 100,
+            lowEq, midEq, highEq, airBoost,
+            targetLufs: masterTargetLufs, tpCeiling: masterTpCeiling,
+          },
+          input_file_id: targetId,
+          qc: job?.result?.qc || null,
           preview_url: previewUrl,
           download_url: mp3Url,
           assets: [
@@ -820,6 +846,29 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
     } finally {
       setBusy(false); setMasterProgress(null);
     }
+  };
+
+
+  const runExportPackage = async () => {
+    const targetId = masterJob?.result?.file_id || enhancedFileId || songBackend?.file_id;
+    if (!targetId) return;
+    setExportBusy(true); setError('');
+    try {
+      const res = await exportPackageOnBackend(targetId);
+      const result = res?.result || res;
+      setExportPack(result);
+      window.dispatchEvent(new CustomEvent('infinity:project-sound', {
+        detail: {
+          id: `export_${Date.now()}`, type: 'export-package', source: 'infinity-studio',
+          name: `Export — ${projectName || songFile?.name || 'track'}`,
+          assets: Object.entries(result?.downloads || {}).map(([k, u]) => ({ type: k, name: k.replace(/_/g, ' '), download_url: u })),
+          created_at: new Date().toISOString(),
+        },
+      }));
+      setStatus('Release package ready — download WAV, MP3 and the QC report below.');
+    } catch (err) {
+      setError(`Export failed: ${safeError(err)}`);
+    } finally { setExportBusy(false); }
   };
 
   const runStemSeparation = async () => {
@@ -1471,10 +1520,38 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
                 )}
               </div>
 
+              {/* Release package export: WAV + MP3 + QC report */}
+              {masterJob?.result && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Release package</div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+                    Bundle everything for delivery: master WAV, MP3, and a QC report with the
+                    measured loudness, true peak and release checks of the finished master.
+                  </div>
+                  {!exportPack && (
+                    <button className="secondary" data-infinity-local-action="true" disabled={exportBusy} onClick={runExportPackage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Download size={14} /> {exportBusy ? 'Building package…' : 'Build release package'}
+                    </button>
+                  )}
+                  {exportPack?.downloads && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                      {Object.entries(exportPack.downloads).map(([key, url]) => (
+                        <a key={key} className="secondary" href={backendUrl(url)} download
+                          style={{ fontSize: 12, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Download size={12} /> {key.replace(/_/g, ' ')}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ ...card, marginBottom: 16 }}>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Separate stems</div>
                 <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
-                  Split your track into <b>Vocals</b> (center channel) + <b>Instrumental</b> (stereo field). FFmpeg-based — fast, no GPU needed.
+                  Uses <b>Demucs AI separation</b> when installed on the server. Without it, a
+                  mid/side approximation runs instead (vocals ≈ centre channel) — useful, but
+                  <b> not real AI stem separation</b>; expect bleed between stems.
                 </div>
                 {!stemJob && (
                   <button className="secondary" data-infinity-local-action="true" disabled={stemBusy || !songBackend} onClick={runStemSeparation} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1482,6 +1559,12 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
                   </button>
                 )}
                 <ProgressBar progress={stemProgress} label={stemProgressMsg} color="#ffcf66" />
+                {stemJob?.result && (
+                  <div style={{ fontSize: 11, color: stemJob.result.method === 'demucs' ? '#57f09c' : '#ffcf66', marginTop: 10 }}>
+                    Method used: {stemJob.result.method === 'demucs' ? 'Demucs (AI separation)' : 'mid/side approximation — not AI separation'}
+                    {stemJob.result.note ? ` · ${stemJob.result.note}` : ''}
+                  </div>
+                )}
                 {stemJob?.result?.downloads && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                     {Object.entries(stemJob.result.downloads).map(([key, url]) => (

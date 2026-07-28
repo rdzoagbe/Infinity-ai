@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import AudioMVP from '../AudioMVPV2.jsx';
 import { useSession } from '../auth/SessionContext.jsx';
 import { DemoBadge, ProjectLibraryPanel, panel } from '../components/projectAssets.jsx';
+import VersionHistory from '../components/VersionHistory.jsx';
 
 export default function ProjectWorkspace() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { projects, setActiveProjectId, demoMode, loading } = useSession();
+  const { projects, setActiveProjectId, updateProjectAsset, demoMode, loading } = useSession();
 
   const project = projects.find((p) => p.id === projectId) || null;
 
@@ -64,6 +65,12 @@ export default function ProjectWorkspace() {
       ) : (
         <AudioMVP open embedded projectId={projectId} onClose={() => navigate('/app/projects')} />
       )}
+
+      <VersionHistory
+        project={project}
+        demo={demoMode}
+        updateAsset={(assetId, updater) => updateProjectAsset(project.id, assetId, updater)}
+      />
 
       <ProjectLibraryPanel project={project} onOpenFile={openFileInStudio} demo={demoMode} />
     </div>

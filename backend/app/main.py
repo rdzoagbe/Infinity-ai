@@ -410,6 +410,45 @@ def download_sound_asset(asset_id: str, request: Request, exp: str | None = None
     return FileResponse(path, media_type="audio/wav", filename=asset.get("filename") or f"{asset_id}.wav")
 
 
+def _build_qc_report(file_data: dict, workspace: Path) -> dict:
+    """Assemble the QC report from saved analysis + measurements of the master."""
+    from .audio import analyze_dynamics_via_astats, measure_lufs
+    from .release_check import build_release_check
+
+    analysis_path = workspace / "analysis" / "analysis.json"
+    saved_analysis: dict = {}
+    if analysis_path.exists():
+        try:
+            saved_analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    mastered = workspace / "renders" / "mastered.wav"
+    master_measurements: dict = {}
+    master_check: dict | None = None
+    if mastered.exists():
+        master_measurements = dict(measure_lufs(mastered))
+        master_measurements["dynamics"] = analyze_dynamics_via_astats(mastered)
+        master_measurements["sample_rate"] = saved_analysis.get("sample_rate")
+        master_measurements["channels"] = saved_analysis.get("channels")
+        master_check = build_release_check(master_measurements)
+
+    return {
+        "report": "Infinity AI quality-control report",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "source_file": file_data.get("filename"),
+        "original_analysis": {
+            k: saved_analysis.get(k)
+            for k in ("integrated_lufs", "true_peak_dbtp", "lra", "duration_seconds", "sample_rate", "channels", "phase_correlation")
+        },
+        "original_release_check": saved_analysis.get("technical_release_check"),
+        "master_measurements": {k: v for k, v in master_measurements.items() if k != "dynamics"} or None,
+        "master_dynamics": master_measurements.get("dynamics") or None,
+        "master_release_check": master_check,
+        "method": "All values measured with ffmpeg loudnorm/astats on the actual files in this package.",
+    }
+
+
 @app.post("/api/v1/export/package")
 def export_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_user)):
     file_data = get_owned_file(payload.file_id, user)
@@ -418,8 +457,13 @@ def export_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_
     exports_dir = workspace / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(original_path, exports_dir / original_path.name)
-    manifest = {"file_id": payload.file_id, "filename": file_data.get("filename"), "available_assets": [], "created_at": "runtime"}
-    downloads = {"original": dl(payload.file_id, "original"), "analysis": dl(payload.file_id, "analysis")}
+
+    # QC report: written as JSON next to the manifest, downloadable.
+    qc_report = _build_qc_report(file_data, workspace)
+    (exports_dir / "qc-report.json").write_text(json.dumps(qc_report, indent=2), encoding="utf-8")
+
+    manifest = {"file_id": payload.file_id, "filename": file_data.get("filename"), "available_assets": [], "created_at": datetime.utcnow().isoformat() + "Z"}
+    downloads = {"original": dl(payload.file_id, "original"), "analysis": dl(payload.file_id, "analysis"), "qc_report": dl(payload.file_id, "qc-report")}
     for asset_type, rel in {"master_preview": "renders/mastered-preview.mp3", "master_wav": "renders/mastered.wav", "master_mp3": "renders/mastered.mp3"}.items():
         if (workspace / rel).exists():
             downloads[asset_type] = dl(payload.file_id, asset_type.replace('_', '-'))
@@ -514,6 +558,7 @@ def download_file(file_id: str, asset_type: str, request: Request, exp: str | No
         "enhanced-mp3": workspace / "renders" / "enhanced.mp3",
         "style-preview": workspace / "renders" / "style-preview.mp3",
         "release-package": workspace / "exports" / "release-package.json",
+        "qc-report": workspace / "exports" / "qc-report.json",
     }
     if asset_type.startswith("stem-"):
         stem_name = asset_type.replace("stem-", "", 1)
