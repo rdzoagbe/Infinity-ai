@@ -18,6 +18,8 @@ import {
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
 import VocalBeatMixer from './studio/VocalBeatMixer.jsx';
+import AnalysisPanel, { QcComparison } from './studio/AnalysisPanel.jsx';
+import ABPlayer from './studio/ABPlayer.jsx';
 
 const STEPS = [
   { id: 1, label: 'Upload' },
@@ -549,7 +551,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
       setStatus('Analysing loudness and track info…');
       try {
         const analysis = await analyzeAudioOnBackend(res.file.file_id);
-        setAnalysisData(analysis);
+        setAnalysisData(analysis?.result || analysis);
       } catch {}
       setStatus('Song uploaded — analysing done.');
       // Auto-clean in background so it's ready when user previews
@@ -860,7 +862,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
     setStemJob(null); setStemBusy(false); setStemProgress(null);
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
-    setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
+    setUploadMode('song');
     setAdvancedOpen(false);
   };
 
@@ -869,7 +871,9 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
   const masterWavUrl = masterDownloads.master_wav ? backendUrl(masterDownloads.master_wav) : '';
   const masterMp3Url = masterDownloads.master_mp3 ? backendUrl(masterDownloads.master_mp3) : '';
   const masterPreviewUrl = masterDownloads.master_preview ? `${backendUrl(masterDownloads.master_preview)}${bust}` : '';
-  const originalDownloadUrl = songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '';
+  const originalDownloadUrl = songBackend?.downloads?.original
+    ? backendUrl(songBackend.downloads.original)
+    : (songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '');
   const masterRender = masterJob?.result?.render || {};
   const abAudioUrl = abMode === 'original' ? originalDownloadUrl : masterPreviewUrl;
   const targetLufs = masterJob?.result?.target_lufs ?? _lufsLabel(platform);
@@ -970,46 +974,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
               <div style={{ color: 'rgba(245,248,255,.52)', fontSize: 13, marginBottom: 10 }}>{formatBytes(songFile.size)}</div>
               {songUrl && <Waveform src={songUrl} color="#55e9ff" />}
               {songUrl && <audio controls src={songUrl} style={{ width: '100%', marginTop: 10 }} />}
-              {/* Analysis pill row */}
-              {analysisData && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-                  {[
-                    ['BPM', analysisData.estimated_bpm],
-                    ['Key', analysisData.estimated_key],
-                    analysisData.integrated_lufs != null && ['Loudness', `${analysisData.integrated_lufs} LUFS`],
-                    analysisData.lra != null && ['LRA', `${analysisData.lra} LU`],
-                    analysisData.dynamics?.rms_db != null && ['RMS', `${analysisData.dynamics.rms_db} dB`],
-                    analysisData.dynamics?.crest_factor_db != null && ['Crest', `${analysisData.dynamics.crest_factor_db} dB`],
-                    analysisData.duration_seconds && ['Duration', `${Math.floor(analysisData.duration_seconds / 60)}:${String(Math.round(analysisData.duration_seconds % 60)).padStart(2, '0')}`],
-                  ].filter(Boolean).map(([k, v]) => (
-                    <span key={k} style={{ fontSize: 11, fontWeight: 700, background: 'rgba(85,233,255,.12)', color: '#55e9ff', borderRadius: 99, padding: '3px 10px' }}>{k}: {v}</span>
-                  ))}
-                </div>
-              )}
-              {/* Problems found */}
-              {analysisData?.processing_decisions?.problems?.length > 0 && (
-                <div style={{ marginTop: 12, background: 'rgba(255,180,60,.04)', border: '1px solid rgba(255,180,60,.18)', borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#ffcf66', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What we found in your mix</div>
-                  {analysisData.processing_decisions.problems.map((p, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: p.severity === 'high' ? '#ff6b6b' : p.severity === 'medium' ? '#ffcf66' : '#57f09c', minWidth: 50, textTransform: 'uppercase' }}>{p.severity}</span>
-                      <div style={{ fontSize: 12, color: 'rgba(245,248,255,.78)', lineHeight: 1.5 }}><b style={{ color: '#f5f8ff' }}>{p.band}:</b> {p.description}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* What we'll do */}
-              {analysisData?.processing_decisions?.decisions?.length > 0 && (
-                <div style={{ marginTop: 8, background: 'rgba(87,240,156,.04)', border: '1px solid rgba(87,240,156,.15)', borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#57f09c', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What Infinity will fix automatically</div>
-                  {analysisData.processing_decisions.decisions.map((d, i) => (
-                    <div key={i} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f5f8ff', marginBottom: 2 }}>{d.processor}{d.value ? ` — ${d.value}` : ''}</div>
-                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{d.reason}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <AnalysisPanel analysis={analysisData} />
             </div>
           )}
           <label
@@ -1442,50 +1407,23 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
                 </div>
               )}
 
-              {masterPreviewUrl && (() => {
-                // Loudness-matched A/B: compensate master volume so both sides play at equal perceived loudness.
-                // originalLufs comes from the upload analysis; targetLufs is the mastering target.
-                // The master gains +N LUFS in processing — we subtract that gain back during playback.
-                const origLufs = analysisData?.integrated_lufs;
-                const mastLufs = parseFloat(targetLufs);
-                const gainDb = (origLufs != null && !isNaN(mastLufs))
-                  ? origLufs - mastLufs  // negative = attenuate master to match original
-                  : 0;
-                const levelMatched = gainDb !== 0;
-                const abGainDb = abMode === 'master' ? gainDb : 0;
-
-                return (
-                  <div style={{ ...card, marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
-                          {abMode === 'original' ? 'Original upload' : '30-second master preview'}
-                        </span>
-                        {levelMatched && (
-                          <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(87,240,156,.12)', color: '#57f09c', border: '1px solid rgba(87,240,156,.25)', borderRadius: 99, padding: '2px 8px', letterSpacing: 0.5 }}>
-                            LEVEL MATCHED
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
-                        {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
-                          <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
-                            style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {levelMatched && (
-                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginBottom: 10, lineHeight: 1.5 }}>
-                        Master attenuated {Math.abs(gainDb).toFixed(1)} dB to match your original's loudness — you're hearing quality difference, not volume difference.
-                      </div>
-                    )}
-                    <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
-                    <LoudnessMatchedPlayer key={abAudioUrl} src={abAudioUrl} gainDb={abGainDb} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
+              {masterPreviewUrl && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Compare — loudness matched
                   </div>
-                );
-              })()}
+                  <ABPlayer
+                    key={masterPreviewUrl}
+                    sources={[
+                      { id: 'original', label: 'Original', url: originalDownloadUrl, lufs: analysisData?.integrated_lufs ?? null, color: '#ffcf66' },
+                      ...(enhancedPreviewUrl ? [{ id: 'mix', label: 'Mix', url: enhancedPreviewUrl, lufs: null, color: '#55e9ff' }] : []),
+                      { id: 'master', label: 'Master', url: masterPreviewUrl, lufs: masterRender.loudness_report?.integrated_lufs ?? (isNaN(parseFloat(targetLufs)) ? null : parseFloat(targetLufs)), color: '#b78aff' },
+                    ]}
+                  />
+                </div>
+              )}
+
+              {masterJob?.result?.qc && <QcComparison qc={masterJob.result.qc} />}
 
               {masterPreviewUrl && (
                 <div style={{ ...card, marginBottom: 16 }}>

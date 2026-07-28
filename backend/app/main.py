@@ -278,8 +278,31 @@ def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
         output_dir = renders
         update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ + adaptive corrections…")
         render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq, dynamics=dynamics, spectral=spectral, target_lufs_override=payload.target_lufs, tp_ceiling=payload.tp_ceiling)
-        update_job_progress(job_id, 90, "Encoding WAV + MP3…")
-        result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
+        update_job_progress(job_id, 85, "Running post-render QC…")
+
+        # Post-render QC: measure the finished master and compare with the
+        # pre-master analysis so the UI can show before/after honestly.
+        qc = None
+        if render.get("status") == "completed":
+            try:
+                from .audio import analyze_dynamics_via_astats
+                from .release_check import build_qc_comparison, build_release_check
+                mastered_path = Path(render.get("wav", ""))
+                after = dict(render.get("loudness_report") or {})
+                after["dynamics"] = analyze_dynamics_via_astats(mastered_path) if mastered_path.exists() else {}
+                after["sample_rate"] = saved_analysis.get("sample_rate")
+                after["channels"] = saved_analysis.get("channels")
+                after["spectral_balance"] = {}
+                qc = {
+                    "comparison": build_qc_comparison(saved_analysis, after, render.get("target_lufs")),
+                    "release_check": build_release_check(after),
+                    "after": after,
+                }
+            except Exception as qc_err:
+                logger.warning("Post-render QC failed: %s", qc_err)
+
+        update_job_progress(job_id, 92, "Encoding WAV + MP3…")
+        result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "qc": qc, "downloads": {}}
         if render.get("status") == "completed":
             result["downloads"] = {
                 "original": dl(payload.file_id, "original"),

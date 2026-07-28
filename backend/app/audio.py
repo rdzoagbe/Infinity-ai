@@ -106,10 +106,12 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
     # astats prints to stderr
     output = stderr + stdout
     def _extract(key: str) -> float | None:
+        import math
         for line in output.splitlines():
             if key in line and "=" in line:
                 try:
-                    return float(line.split("=")[-1].strip())
+                    value = float(line.split("=")[-1].strip())
+                    return value if math.isfinite(value) else None
                 except ValueError:
                     pass
         return None
@@ -120,6 +122,7 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
     flat_factor = _extract("Flat_factor")
     peak_level = _extract("Peak_level")
     noise_floor = _extract("Noise_floor")
+    peak_count = _extract("Peak_count")
 
     result = {}
     if rms_level is not None:
@@ -132,7 +135,39 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
         result["noise_floor_db"] = round(noise_floor, 1)
     if rms_level is not None and noise_floor is not None and noise_floor < 0:
         result["dynamic_range_db"] = round(rms_level - noise_floor, 1)
+    # Clipping: samples sitting at/above full scale. flat_factor > 0 with a
+    # 0 dBFS peak indicates flat-topped (clipped) waveforms.
+    if peak_level is not None:
+        clipped = bool(peak_level >= -0.05 and (flat_factor or 0) > 0)
+        result["clipping_detected"] = clipped
+        if peak_count is not None:
+            result["samples_at_peak"] = int(peak_count)
     return result
+
+
+def measure_phase_correlation(path: Path) -> dict:
+    """Stereo phase correlation via ffmpeg aphasemeter (−1 = out of phase, +1 = mono-safe)."""
+    if not has_ffmpeg():
+        return {}
+    code, stdout, stderr = run_command(
+        ["ffmpeg", "-y", "-i", str(path), "-af", "aphasemeter=video=0:phasing=1,ametadata=print:file=-", "-f", "null", "/dev/null"],
+        timeout=120,
+    )
+    output = stderr + stdout
+    values = []
+    for line in output.splitlines():
+        if "lavfi.aphasemeter.phase" in line and "=" in line:
+            try:
+                values.append(float(line.split("=")[-1].strip()))
+            except ValueError:
+                pass
+    if not values:
+        return {}
+    mean_phase = sum(values) / len(values)
+    return {
+        "phase_correlation": round(mean_phase, 3),
+        "phase_min": round(min(values), 3),
+    }
 
 
 def analyze_spectral_balance(path: Path) -> dict:
@@ -253,6 +288,29 @@ def build_processing_decisions(lufs: dict, dynamics: dict, spectral: dict, genre
     if genre_key in genre_decisions:
         decisions.append(genre_decisions[genre_key])
 
+    # Enrich problems: stable key, confidence, recommended Infinity module +
+    # parameters. Confidence reflects how the issue was derived: direct
+    # threshold on a single measurement (high) vs relational spectral
+    # heuristic (medium).
+    recommendations = {
+        "loudness": ("Infinity Limiter", {"target_lufs": -14}, 0.95),
+        "peak": ("Infinity Limiter", {"tp_ceiling": -1.0}, 0.95),
+        "dynamics": ("Mix Bus Compressor", {"ratio": 1.5}, 0.85),
+        "transients": ("Infinity Opto", {"compression": 0.3}, 0.75),
+        "noise": ("Infinity Clean", {"noise_reduction_db": 20}, 0.85),
+        "sub (20-60 Hz)": ("High-Pass Filter", {"frequency_hz": 30}, 0.7),
+        "low-mid (250-500 Hz)": ("Infinity Dynamic EQ", {"frequency_hz": 350, "gain_db": -2.5}, 0.7),
+        "presence (5-10 kHz)": ("Infinity De-Esser", {"deess": 0.7}, 0.7),
+        "air (10-20 kHz)": ("Infinity Air", {"air": 1.5}, 0.7),
+    }
+    for problem in problems:
+        band = problem.get("band", "")
+        module, params, confidence = recommendations.get(band, ("Infinity chain", {}, 0.6))
+        problem["key"] = band.split(" ")[0].replace("(", "").lower()
+        problem["confidence"] = confidence
+        problem["recommended_module"] = module
+        problem["recommended_parameters"] = params
+
     return {
         "problems": problems,
         "decisions": decisions,
@@ -261,33 +319,34 @@ def build_processing_decisions(lufs: dict, dynamics: dict, spectral: dict, genre
 
 
 def estimate_music_traits(filename: str, metadata: dict) -> dict:
-    seed = sum(ord(c) for c in filename)
-    duration = int(metadata.get("duration_seconds") or 0)
-    sample_rate = int(metadata.get("sample_rate") or 44100)
-    keys = ["A minor", "C minor", "D minor", "F# minor", "G major", "Eb minor", "Bb minor", "E minor"]
-    genres = ["Afrobeat", "Trap Soul", "Cinematic", "Drill", "House", "Gospel", "Soul", "Experimental"]
+    """Musical trait detection status.
+
+    BPM and key detection are NOT implemented server-side yet (no librosa/
+    essentia). We report them as unavailable rather than fabricating values —
+    the UI must show 'Unavailable', never a made-up number.
+    """
     return {
-        "estimated_bpm": 72 + ((seed + duration + sample_rate) % 78),
-        "estimated_key": keys[(seed + duration) % len(keys)],
-        "estimated_genre": genres[(seed + sample_rate) % len(genres)],
-        "vocal_tone": "Warm / Airy" if seed % 2 else "Clean / Forward",
-        "loudness_target": "-14 LUFS / -1.5 dBTP",
-        "mastering_hint": "Balanced streaming master with controlled low-end and vocal presence.",
+        "estimated_bpm": None,
+        "bpm_status": "unavailable",
+        "estimated_key": None,
+        "key_status": "unavailable",
+        "traits_note": "BPM and key detection are not yet implemented. These fields stay empty until a real detector ships.",
     }
 
 
 def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict) -> dict:
+    from .release_check import build_release_check
+
     traits = estimate_music_traits(filename, metadata)
     lufs = measure_lufs(path)
     dynamics = analyze_dynamics_via_astats(path)
     spectral = analyze_spectral_balance(path)
-    genre_key = traits.get("estimated_genre", "custom").lower().split()[0]
-    processing = build_processing_decisions(lufs, dynamics, spectral, genre_key)
+    phase = measure_phase_correlation(path) if (metadata.get("channels") or 2) >= 2 else {}
+    processing = build_processing_decisions(lufs, dynamics, spectral, "custom")
     duration = metadata.get("duration_seconds")
     sample_rate = metadata.get("sample_rate")
     bitrate = metadata.get("bitrate")
-    readiness = "Ready for v10 mastering" if metadata.get("ffmpeg_available") else "Metadata only; FFmpeg missing"
-    return {
+    result = {
         "file_id": file_id,
         "filename": filename,
         "duration_seconds": duration,
@@ -298,7 +357,6 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         "format_name": metadata.get("format_name"),
         "ffmpeg_available": metadata.get("ffmpeg_available"),
         "demucs_available": metadata.get("demucs_available"),
-        "readiness": readiness,
         "quality_flags": {
             "duration_ok": bool(duration and duration > 5),
             "sample_rate_ok": bool(sample_rate and sample_rate >= 44100),
@@ -307,11 +365,14 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         },
         **traits,
         **lufs,
+        **phase,
         "dynamics": dynamics,
         "spectral_balance": spectral,
         "processing_decisions": processing,
-        "note": "Infinity v10 analysis. FFprobe/mutagen metadata is real; BPM/key/genre remain heuristic until Librosa/Essentia integration.",
+        "note": "All numeric measurements are computed from this file. BPM/key report 'unavailable' until real detection ships.",
     }
+    result["technical_release_check"] = build_release_check(result)
+    return result
 
 
 PLATFORM_LUFS: dict[str, int] = {
