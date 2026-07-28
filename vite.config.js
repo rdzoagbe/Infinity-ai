@@ -7,5 +7,9 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true
-  }
+  },
+  test: {
+    // Playwright specs live in e2e/ and run via `npm run test:e2e`
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+  },
 })

@@ -8,7 +8,6 @@ import {
   cleanFullMixOnBackend,
   enhanceMixOnBackend,
   masterAudioOnBackend,
-  mixVocalBeatOnBackend,
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
@@ -18,6 +17,10 @@ import {
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
+import { exportPackageOnBackend } from './api/infinityBackend.js';
+import VocalBeatMixer from './studio/VocalBeatMixer.jsx';
+import AnalysisPanel, { QcComparison } from './studio/AnalysisPanel.jsx';
+import ABPlayer from './studio/ABPlayer.jsx';
 
 const STEPS = [
   { id: 1, label: 'Upload' },
@@ -254,7 +257,7 @@ function LoudnessMatchedPlayer({ src, gainDb = 0, color = '#b78aff' }) {
       audio.removeEventListener('play', resume);
       ac.close().catch(() => {});
     };
-  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [src]);
 
   // Apply gain change without rebuilding the graph
   useEffect(() => {
@@ -354,7 +357,7 @@ function NavRow({ onBack, nextLabel, onNext, nextDisabled, secondaryLabel, onSec
   );
 }
 
-export default function AudioMVPV2({ open, onClose }) {
+export default function AudioMVPV2({ open, onClose, embedded = false, projectId = null }) {
   const isMobile = useIsMobile();
   const [step, setStep] = useState(1);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -394,6 +397,8 @@ export default function AudioMVPV2({ open, onClose }) {
   const [lowEq, setLowEq] = useState(0);
   const [midEq, setMidEq] = useState(0);
   const [highEq, setHighEq] = useState(0);
+  const [masterTargetLufs, setMasterTargetLufs] = useState(null);  // null = automatic platform/genre blend
+  const [masterTpCeiling, setMasterTpCeiling] = useState(null);    // null = automatic (-1 dBTP)
 
   // style preview (Step 3)
   const [stylePreviewUrl, setStylePreviewUrl] = useState('');
@@ -403,11 +408,8 @@ export default function AudioMVPV2({ open, onClose }) {
   const [refLufs, setRefLufs] = useState(null);
   const [refBusy, setRefBusy] = useState(false);
 
-  // vocals-only + beat mode
-  const [isVocalOnly, setIsVocalOnly] = useState(false);
-  const [beatFile, setBeatFile] = useState(null);
-  const [beatFileId, setBeatFileId] = useState(null);
-  const [vocalBeatBusy, setVocalBeatBusy] = useState(false);
+  // import mode: 'song' (finished recording) | 'vocalbeat' (separate vocal + beat)
+  const [uploadMode, setUploadMode] = useState('song');
 
   // mix templates (learn from past masters)
   const [templates, setTemplates] = useState(() => loadTemplates());
@@ -421,8 +423,6 @@ export default function AudioMVPV2({ open, onClose }) {
   const [masterProgressMsg, setMasterProgressMsg] = useState('');
   const [styleProgress, setStyleProgress] = useState(null);
   const [styleProgressMsg, setStyleProgressMsg] = useState('');
-  const [vocalBeatProgress, setVocalBeatProgress] = useState(null);
-  const [vocalBeatProgressMsg, setVocalBeatProgressMsg] = useState('');
 
   const [masterJob, setMasterJob] = useState(null);
   const [stemJob, setStemJob] = useState(null);
@@ -446,6 +446,8 @@ export default function AudioMVPV2({ open, onClose }) {
   const [aiAnalysisProgress, setAiAnalysisProgress] = useState(null);
 
   const [restoredName, setRestoredName] = useState('');
+  const [exportPack, setExportPack] = useState(null);
+  const [exportBusy, setExportBusy] = useState(false);
   const songUrlRef = useRef('');
 
   // Save session whenever key state changes
@@ -459,6 +461,22 @@ export default function AudioMVPV2({ open, onClose }) {
     if (!open) return;
     checkBackendHealth().then(() => setBackendOnline(true)).catch(() => setBackendOnline(false));
     if (songBackend?.file_id) return; // already has a song loaded
+    // Restore master settings saved from a version's "restore settings"
+    try {
+      const restored = JSON.parse(localStorage.getItem('infinity_restored_master_params_v1') || 'null');
+      if (restored) {
+        if (restored.mode) setMode(restored.mode);
+        if (restored.platform) setPlatform(restored.platform);
+        if (restored.strength != null) setStrength(restored.strength);
+        if (restored.warmth != null) setWarmth(Math.round(restored.warmth * 100));
+        if (restored.lowEq != null) setLowEq(restored.lowEq);
+        if (restored.midEq != null) setMidEq(restored.midEq);
+        if (restored.highEq != null) setHighEq(restored.highEq);
+        if (restored.targetLufs !== undefined) setMasterTargetLufs(restored.targetLufs);
+        if (restored.tpCeiling !== undefined) setMasterTpCeiling(restored.tpCeiling);
+        localStorage.removeItem('infinity_restored_master_params_v1');
+      }
+    } catch {}
     const saved = loadSession();
     if (!saved?.songBackend?.file_id) return;
     setSongBackend(saved.songBackend);
@@ -552,7 +570,7 @@ export default function AudioMVPV2({ open, onClose }) {
       setStatus('Analysing loudness and track info…');
       try {
         const analysis = await analyzeAudioOnBackend(res.file.file_id);
-        setAnalysisData(analysis);
+        setAnalysisData(analysis?.result || analysis);
       } catch {}
       setStatus('Song uploaded — analysing done.');
       // Auto-clean in background so it's ready when user previews
@@ -581,44 +599,6 @@ export default function AudioMVPV2({ open, onClose }) {
     finally { setRefBusy(false); }
   };
 
-  const handleBeatFile = async (file) => {
-    setBeatFile(file);
-    setVocalBeatBusy(true); setError('');
-    setStatus('Uploading beat…');
-    try {
-      const res = await uploadAudioToBackend(file);
-      setBeatFileId(res.file.file_id);
-      setStatus('Beat uploaded. Click "Mix vocals + beat" to combine them.');
-    } catch (err) {
-      setError(`Beat upload failed: ${safeError(err)}`);
-    } finally {
-      setVocalBeatBusy(false);
-    }
-  };
-
-  const runVocalBeatMix = async () => {
-    if (!songBackend?.file_id || !beatFileId) return;
-    setVocalBeatBusy(true); setError(''); setVocalBeatProgress(0); setVocalBeatProgressMsg('Starting…');
-    setStatus('Mixing vocals with beat — applying vocal clean, EQ, stereo, compression…');
-    try {
-      const init = await mixVocalBeatOnBackend(songBackend.file_id, beatFileId);
-      const jobId = init?.job_id;
-      let job = init;
-      if (jobId) {
-        job = await pollUntilComplete(jobId, (p, msg) => { setVocalBeatProgress(p); setVocalBeatProgressMsg(msg); });
-      }
-      const mid = job?.result?.mixed_file_id;
-      if (mid) {
-        setEnhancedFileId(mid);
-        setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`));
-      }
-      setStatus('Vocals + beat mixed. Listen below, then choose your sound style.');
-    } catch (err) {
-      setError(`Vocal/beat mix failed: ${safeError(err)}`);
-    } finally {
-      setVocalBeatBusy(false); setVocalBeatProgress(null);
-    }
-  };
 
   const runClean = async () => {
     if (!songBackend?.file_id) return;
@@ -802,7 +782,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setBusy(true); setError(''); setMasterProgress(0); setMasterProgressMsg('Queuing master…');
     setStatus(`Mastering for ${platformLabel} · ${mode}${airBoost ? ' + air boost' : ''}${overrideStrength ? ` · ${s}% intensity` : ''}…`);
     try {
-      const init = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq);
+      const init = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq, masterTargetLufs, masterTpCeiling);
       const jobId = init?.job_id;
       let job = init;
       if (jobId) {
@@ -843,6 +823,13 @@ export default function AudioMVPV2({ open, onClose }) {
           mode,
           strength: s,
           target_lufs: job?.result?.target_lufs,
+          parameters: {
+            mode, strength: s, platform, warmth: warmth / 100,
+            lowEq, midEq, highEq, airBoost,
+            targetLufs: masterTargetLufs, tpCeiling: masterTpCeiling,
+          },
+          input_file_id: targetId,
+          qc: job?.result?.qc || null,
           preview_url: previewUrl,
           download_url: mp3Url,
           assets: [
@@ -859,6 +846,29 @@ export default function AudioMVPV2({ open, onClose }) {
     } finally {
       setBusy(false); setMasterProgress(null);
     }
+  };
+
+
+  const runExportPackage = async () => {
+    const targetId = masterJob?.result?.file_id || enhancedFileId || songBackend?.file_id;
+    if (!targetId) return;
+    setExportBusy(true); setError('');
+    try {
+      const res = await exportPackageOnBackend(targetId);
+      const result = res?.result || res;
+      setExportPack(result);
+      window.dispatchEvent(new CustomEvent('infinity:project-sound', {
+        detail: {
+          id: `export_${Date.now()}`, type: 'export-package', source: 'infinity-studio',
+          name: `Export — ${projectName || songFile?.name || 'track'}`,
+          assets: Object.entries(result?.downloads || {}).map(([k, u]) => ({ type: k, name: k.replace(/_/g, ' '), download_url: u })),
+          created_at: new Date().toISOString(),
+        },
+      }));
+      setStatus('Release package ready — download WAV, MP3 and the QC report below.');
+    } catch (err) {
+      setError(`Export failed: ${safeError(err)}`);
+    } finally { setExportBusy(false); }
   };
 
   const runStemSeparation = async () => {
@@ -901,7 +911,7 @@ export default function AudioMVPV2({ open, onClose }) {
     setStemJob(null); setStemBusy(false); setStemProgress(null);
     setPresenceBoost(true); setReverbAmount(0.2); setStereoWidth(1.3); setBusCompress(true); setWarmth(30);
     setLowEq(0); setMidEq(0); setHighEq(0); setRefLufs(null); setStylePreviewUrl(''); setStylePreviewBusy(false);
-    setIsVocalOnly(false); setBeatFile(null); setBeatFileId(null); setVocalBeatBusy(false);
+    setUploadMode('song');
     setAdvancedOpen(false);
   };
 
@@ -910,7 +920,9 @@ export default function AudioMVPV2({ open, onClose }) {
   const masterWavUrl = masterDownloads.master_wav ? backendUrl(masterDownloads.master_wav) : '';
   const masterMp3Url = masterDownloads.master_mp3 ? backendUrl(masterDownloads.master_mp3) : '';
   const masterPreviewUrl = masterDownloads.master_preview ? `${backendUrl(masterDownloads.master_preview)}${bust}` : '';
-  const originalDownloadUrl = songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '';
+  const originalDownloadUrl = songBackend?.downloads?.original
+    ? backendUrl(songBackend.downloads.original)
+    : (songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '');
   const masterRender = masterJob?.result?.render || {};
   const abAudioUrl = abMode === 'original' ? originalDownloadUrl : masterPreviewUrl;
   const targetLufs = masterJob?.result?.target_lufs ?? _lufsLabel(platform);
@@ -935,10 +947,40 @@ export default function AudioMVPV2({ open, onClose }) {
 
       case 1: return ( // ─── UPLOAD ───
         <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 1 — Upload your song</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            Upload your finished recording — beat and vocals already together. MP3 or WAV recommended.
+          <h3 style={{ margin: '0 0 6px' }}>Step 1 — Import</h3>
+          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 14, lineHeight: 1.6 }}>
+            Start from a finished recording, or bring a separate vocal and beat to mix here.
           </p>
+          {/* Import mode switch */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button
+              data-infinity-local-action="true"
+              className={uploadMode === 'song' ? 'primary' : 'secondary'}
+              onClick={() => setUploadMode('song')}
+              style={{ flex: 1, padding: '10px 0', fontSize: 13 }}
+            >Full song</button>
+            <button
+              data-infinity-local-action="true"
+              className={uploadMode === 'vocalbeat' ? 'primary' : 'secondary'}
+              onClick={() => setUploadMode('vocalbeat')}
+              style={{ flex: 1, padding: '10px 0', fontSize: 13 }}
+            >Vocal + Beat</button>
+          </div>
+          {uploadMode === 'vocalbeat' ? (
+            <div>
+              <VocalBeatMixer
+                projectKey={projectId || 'studio'}
+                onMixed={({ mixedFileId, previewUrl }) => {
+                  setEnhancedFileId(mixedFileId);
+                  if (previewUrl) setEnhancedPreviewUrl(previewUrl);
+                  setSongBackend((current) => current || { file_id: mixedFileId, filename: 'mixed.wav' });
+                  setStatus('Mix rendered — continue to shape or master it.');
+                }}
+              />
+              <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!enhancedFileId || busy} />
+            </div>
+          ) : (
+          <div>
           {/* Recent files list — shown when no file is loaded yet */}
           {!songFile && !songBackend && recentFiles.length > 0 && (
             <div style={{ marginBottom: 16, border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, overflow: 'hidden' }}>
@@ -981,46 +1023,7 @@ export default function AudioMVPV2({ open, onClose }) {
               <div style={{ color: 'rgba(245,248,255,.52)', fontSize: 13, marginBottom: 10 }}>{formatBytes(songFile.size)}</div>
               {songUrl && <Waveform src={songUrl} color="#55e9ff" />}
               {songUrl && <audio controls src={songUrl} style={{ width: '100%', marginTop: 10 }} />}
-              {/* Analysis pill row */}
-              {analysisData && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-                  {[
-                    ['BPM', analysisData.estimated_bpm],
-                    ['Key', analysisData.estimated_key],
-                    analysisData.integrated_lufs != null && ['Loudness', `${analysisData.integrated_lufs} LUFS`],
-                    analysisData.lra != null && ['LRA', `${analysisData.lra} LU`],
-                    analysisData.dynamics?.rms_db != null && ['RMS', `${analysisData.dynamics.rms_db} dB`],
-                    analysisData.dynamics?.crest_factor_db != null && ['Crest', `${analysisData.dynamics.crest_factor_db} dB`],
-                    analysisData.duration_seconds && ['Duration', `${Math.floor(analysisData.duration_seconds / 60)}:${String(Math.round(analysisData.duration_seconds % 60)).padStart(2, '0')}`],
-                  ].filter(Boolean).map(([k, v]) => (
-                    <span key={k} style={{ fontSize: 11, fontWeight: 700, background: 'rgba(85,233,255,.12)', color: '#55e9ff', borderRadius: 99, padding: '3px 10px' }}>{k}: {v}</span>
-                  ))}
-                </div>
-              )}
-              {/* Problems found */}
-              {analysisData?.processing_decisions?.problems?.length > 0 && (
-                <div style={{ marginTop: 12, background: 'rgba(255,180,60,.04)', border: '1px solid rgba(255,180,60,.18)', borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#ffcf66', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What we found in your mix</div>
-                  {analysisData.processing_decisions.problems.map((p, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: p.severity === 'high' ? '#ff6b6b' : p.severity === 'medium' ? '#ffcf66' : '#57f09c', minWidth: 50, textTransform: 'uppercase' }}>{p.severity}</span>
-                      <div style={{ fontSize: 12, color: 'rgba(245,248,255,.78)', lineHeight: 1.5 }}><b style={{ color: '#f5f8ff' }}>{p.band}:</b> {p.description}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* What we'll do */}
-              {analysisData?.processing_decisions?.decisions?.length > 0 && (
-                <div style={{ marginTop: 8, background: 'rgba(87,240,156,.04)', border: '1px solid rgba(87,240,156,.15)', borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#57f09c', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>What Infinity will fix automatically</div>
-                  {analysisData.processing_decisions.decisions.map((d, i) => (
-                    <div key={i} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f5f8ff', marginBottom: 2 }}>{d.processor}{d.value ? ` — ${d.value}` : ''}</div>
-                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.55)', lineHeight: 1.5 }}>{d.reason}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <AnalysisPanel analysis={analysisData} />
             </div>
           )}
           <label
@@ -1095,6 +1098,8 @@ export default function AudioMVPV2({ open, onClose }) {
           )}
 
           <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
+          </div>
+          )}
         </div>
       );
 
@@ -1257,6 +1262,29 @@ export default function AudioMVPV2({ open, onClose }) {
                     <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '6px 12px' }}
                       onClick={() => { setLowEq(0); setMidEq(0); setHighEq(0); }}>Reset EQ</button>
                   </div>
+                </div>
+                {/* Mastering target overrides */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>Mastering target</div>
+                  <div data-infinity-local-action="true" onClick={() => { setMasterTargetLufs(masterTargetLufs == null ? -14 : null); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10, userSelect: 'none' }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${masterTargetLufs == null ? '#57f09c' : 'rgba(255,255,255,.2)'}`, background: masterTargetLufs == null ? '#57f09c22' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#57f09c' }}>{masterTargetLufs == null ? '✓' : ''}</div>
+                    <span style={{ fontSize: 13 }}>Automatic loudness (platform + genre blend)</span>
+                  </div>
+                  {masterTargetLufs != null && (
+                    <>
+                      <label className="range" style={{ marginBottom: 10 }}>
+                        <span>Target loudness <b style={{ color: '#55e9ff' }}>{masterTargetLufs} LUFS</b></span>
+                        <input type="range" min="-24" max="-6" step="0.5" value={masterTargetLufs} data-infinity-local-action="true"
+                          onChange={e => setMasterTargetLufs(Number(e.target.value))} />
+                      </label>
+                      <label className="range" style={{ marginBottom: 10 }}>
+                        <span>True-peak ceiling <b style={{ color: '#ffcf66' }}>{masterTpCeiling ?? -1} dBTP</b></span>
+                        <input type="range" min="-3" max="-0.1" step="0.1" value={masterTpCeiling ?? -1} data-infinity-local-action="true"
+                          onChange={e => setMasterTpCeiling(Number(e.target.value))} />
+                      </label>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -1428,50 +1456,23 @@ export default function AudioMVPV2({ open, onClose }) {
                 </div>
               )}
 
-              {masterPreviewUrl && (() => {
-                // Loudness-matched A/B: compensate master volume so both sides play at equal perceived loudness.
-                // originalLufs comes from the upload analysis; targetLufs is the mastering target.
-                // The master gains +N LUFS in processing — we subtract that gain back during playback.
-                const origLufs = analysisData?.integrated_lufs;
-                const mastLufs = parseFloat(targetLufs);
-                const gainDb = (origLufs != null && !isNaN(mastLufs))
-                  ? origLufs - mastLufs  // negative = attenuate master to match original
-                  : 0;
-                const levelMatched = gainDb !== 0;
-                const abGainDb = abMode === 'master' ? gainDb : 0;
-
-                return (
-                  <div style={{ ...card, marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 13, color: 'rgba(245,248,255,.52)' }}>
-                          {abMode === 'original' ? 'Original upload' : '30-second master preview'}
-                        </span>
-                        {levelMatched && (
-                          <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(87,240,156,.12)', color: '#57f09c', border: '1px solid rgba(87,240,156,.25)', borderRadius: 99, padding: '2px 8px', letterSpacing: 0.5 }}>
-                            LEVEL MATCHED
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, overflow: 'hidden' }}>
-                        {[['original', 'A — Original'], ['master', 'B — Master']].map(([val, label]) => (
-                          <button key={val} data-infinity-local-action="true" onClick={() => setAbMode(val)}
-                            style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: abMode === val ? '#55e9ff' : 'rgba(255,255,255,.04)', color: abMode === val ? '#0a0f1e' : 'rgba(245,248,255,.55)', transition: 'all .15s' }}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {levelMatched && (
-                      <div style={{ fontSize: 11, color: 'rgba(245,248,255,.38)', marginBottom: 10, lineHeight: 1.5 }}>
-                        Master attenuated {Math.abs(gainDb).toFixed(1)} dB to match your original's loudness — you're hearing quality difference, not volume difference.
-                      </div>
-                    )}
-                    <Waveform src={abAudioUrl} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
-                    <LoudnessMatchedPlayer key={abAudioUrl} src={abAudioUrl} gainDb={abGainDb} color={abMode === 'original' ? '#ffcf66' : '#b78aff'} />
+              {masterPreviewUrl && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.44)', marginBottom: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Compare — loudness matched
                   </div>
-                );
-              })()}
+                  <ABPlayer
+                    key={masterPreviewUrl}
+                    sources={[
+                      { id: 'original', label: 'Original', url: originalDownloadUrl, lufs: analysisData?.integrated_lufs ?? null, color: '#ffcf66' },
+                      ...(enhancedPreviewUrl ? [{ id: 'mix', label: 'Mix', url: enhancedPreviewUrl, lufs: null, color: '#55e9ff' }] : []),
+                      { id: 'master', label: 'Master', url: masterPreviewUrl, lufs: masterRender.loudness_report?.integrated_lufs ?? (isNaN(parseFloat(targetLufs)) ? null : parseFloat(targetLufs)), color: '#b78aff' },
+                    ]}
+                  />
+                </div>
+              )}
+
+              {masterJob?.result?.qc && <QcComparison qc={masterJob.result.qc} />}
 
               {masterPreviewUrl && (
                 <div style={{ ...card, marginBottom: 16 }}>
@@ -1519,10 +1520,38 @@ export default function AudioMVPV2({ open, onClose }) {
                 )}
               </div>
 
+              {/* Release package export: WAV + MP3 + QC report */}
+              {masterJob?.result && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Release package</div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
+                    Bundle everything for delivery: master WAV, MP3, and a QC report with the
+                    measured loudness, true peak and release checks of the finished master.
+                  </div>
+                  {!exportPack && (
+                    <button className="secondary" data-infinity-local-action="true" disabled={exportBusy} onClick={runExportPackage} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Download size={14} /> {exportBusy ? 'Building package…' : 'Build release package'}
+                    </button>
+                  )}
+                  {exportPack?.downloads && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                      {Object.entries(exportPack.downloads).map(([key, url]) => (
+                        <a key={key} className="secondary" href={backendUrl(url)} download
+                          style={{ fontSize: 12, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Download size={12} /> {key.replace(/_/g, ' ')}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ ...card, marginBottom: 16 }}>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Separate stems</div>
                 <div style={{ fontSize: 12, color: 'rgba(245,248,255,.45)', marginBottom: 12, lineHeight: 1.5 }}>
-                  Split your track into <b>Vocals</b> (center channel) + <b>Instrumental</b> (stereo field). FFmpeg-based — fast, no GPU needed.
+                  Uses <b>Demucs AI separation</b> when installed on the server. Without it, a
+                  mid/side approximation runs instead (vocals ≈ centre channel) — useful, but
+                  <b> not real AI stem separation</b>; expect bleed between stems.
                 </div>
                 {!stemJob && (
                   <button className="secondary" data-infinity-local-action="true" disabled={stemBusy || !songBackend} onClick={runStemSeparation} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1530,6 +1559,12 @@ export default function AudioMVPV2({ open, onClose }) {
                   </button>
                 )}
                 <ProgressBar progress={stemProgress} label={stemProgressMsg} color="#ffcf66" />
+                {stemJob?.result && (
+                  <div style={{ fontSize: 11, color: stemJob.result.method === 'demucs' ? '#57f09c' : '#ffcf66', marginTop: 10 }}>
+                    Method used: {stemJob.result.method === 'demucs' ? 'Demucs (AI separation)' : 'mid/side approximation — not AI separation'}
+                    {stemJob.result.note ? ` · ${stemJob.result.note}` : ''}
+                  </div>
+                )}
                 {stemJob?.result?.downloads && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                     {Object.entries(stemJob.result.downloads).map(([key, url]) => (
@@ -1596,9 +1631,14 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  // Embedded mode renders the studio inline as routed page content; overlay
+  // mode keeps the legacy full-screen behaviour.
+  const wrapper = embedded ? { width: '100%' } : overlay;
+  const shellStyle = embedded ? { ...shell, margin: 0, maxWidth: 'none', minHeight: 'auto' } : shell;
+
   return (
-    <div style={overlay}>
-      <div style={shell}>
+    <div style={wrapper}>
+      <div style={shellStyle}>
         {/* Studio header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '14px 16px 12px' : '18px 28px 14px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

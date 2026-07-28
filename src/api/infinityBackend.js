@@ -1,4 +1,40 @@
+import { supabase } from "./supabaseClient.js";
+
 const API_BASE = import.meta.env.VITE_INFINITY_API_URL || "http://localhost:8000";
+
+// Stable per-browser id: scopes anonymous (local-mode) users' records on the
+// backend so one visitor cannot read another's files by guessing ids.
+function clientId() {
+  try {
+    let id = localStorage.getItem("infinity_client_id_v1");
+    if (!id) {
+      id = (crypto.randomUUID?.() || Math.random().toString(16).slice(2) + Date.now().toString(16)).replace(/-/g, "");
+      localStorage.setItem("infinity_client_id_v1", id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
+async function authHeaders() {
+  const headers = {};
+  const id = clientId();
+  if (id) headers["X-Infinity-Client"] = id;
+  try {
+    const { data } = (await supabase?.auth?.getSession?.()) || {};
+    const token = data?.session?.access_token;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  } catch {
+    // Supabase not configured — anonymous client id only.
+  }
+  return headers;
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = { ...(await authHeaders()), ...(options.headers || {}) };
+  return fetch(url, { ...options, headers });
+}
 
 async function parseResponse(response, fallbackMessage) {
   let payload = null;
@@ -24,7 +60,7 @@ export function backendUrl(path) {
 }
 
 export async function checkBackendHealth() {
-  const response = await fetch(`${API_BASE}/health`);
+  const response = await apiFetch(`${API_BASE}/health`);
   return parseResponse(response, "Backend health check failed");
 }
 
@@ -32,7 +68,7 @@ export async function uploadAudioToBackend(file) {
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(`${API_BASE}/api/v1/audio/upload`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/upload`, {
     method: "POST",
     body,
   });
@@ -41,7 +77,7 @@ export async function uploadAudioToBackend(file) {
 }
 
 export async function analyzeAudioOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/analyze`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -50,28 +86,21 @@ export async function analyzeAudioOnBackend(fileId) {
   return parseResponse(response, "Analysis failed");
 }
 
-export async function mixAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 72) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/mix`, {
+export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0, lowEq = 0.0, midEq = 0.0, highEq = 0.0, targetLufs = null, tpCeiling = null) {
+  const body = { file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth, low_eq: lowEq, mid_eq: midEq, high_eq: highEq };
+  if (targetLufs != null) body.target_lufs = targetLufs;
+  if (tpCeiling != null) body.tp_ceiling = tpCeiling;
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength }),
-  });
-
-  return parseResponse(response, "Mix job failed");
-}
-
-export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0, lowEq = 0.0, midEq = 0.0, highEq = 0.0) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/master`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth, low_eq: lowEq, mid_eq: midEq, high_eq: highEq }),
+    body: JSON.stringify(body),
   });
 
   return parseResponse(response, "Mastering job failed");
 }
 
 export async function cleanFullMixOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/clean-mix`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/clean-mix`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -80,7 +109,7 @@ export async function cleanFullMixOnBackend(fileId) {
 }
 
 export async function enhanceMixOnBackend(fileId, presenceBoost = true, reverbAmount = 0.2, stereoWidth = 1.3, busCompress = true) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/enhance-mix`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/enhance-mix`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -95,7 +124,7 @@ export async function enhanceMixOnBackend(fileId, presenceBoost = true, reverbAm
 }
 
 export async function cleanVocalsOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/vocal/clean`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/vocal/clean`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -104,24 +133,29 @@ export async function cleanVocalsOnBackend(fileId) {
   return parseResponse(response, "Vocal cleaning failed");
 }
 
-export async function mixVocalBeatOnBackend(
-  vocalFileId, beatFileId,
-  vocalGain = 1.0, beatGain = 0.85,
-  vocalPresenceBoost = true, beatStereoWidth = 1.5, busCompress = true,
-  reverbAmount = 0.2,
-) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/mix-vocal-beat`, {
+// params: the full Infinity chain control surface — see chains.VOCAL_BEAT_DEFAULTS
+// on the backend. All values are validated and clamped server-side.
+export async function mixVocalBeatOnBackend(vocalFileId, beatFileId, params = {}) {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/mix-vocal-beat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       vocal_file_id: vocalFileId,
       beat_file_id: beatFileId,
-      vocal_gain: vocalGain,
-      beat_gain: beatGain,
-      vocal_presence_boost: vocalPresenceBoost,
-      beat_stereo_width: beatStereoWidth,
-      bus_compress: busCompress,
-      reverb_amount: reverbAmount,
+      vocal_gain: params.vocalGain ?? 1.0,
+      beat_gain: params.beatGain ?? 0.85,
+      vocal_mute: params.vocalMute ?? false,
+      beat_mute: params.beatMute ?? false,
+      presence: params.presence ?? 2.0,
+      air: params.air ?? 1.8,
+      clarity: params.clarity ?? 0.0,
+      warmth: params.warmth ?? 0.25,
+      deess: params.deess ?? 0.5,
+      compression: params.compression ?? 0.5,
+      reverb_amount: params.reverb ?? 0.2,
+      delay_amount: params.delay ?? 0.0,
+      beat_stereo_width: params.beatStereoWidth ?? 1.5,
+      bus_compress: params.busCompress ?? true,
     }),
   });
 
@@ -129,7 +163,7 @@ export async function mixVocalBeatOnBackend(
 }
 
 export async function separateStemsOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/separate-stems`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/separate-stems`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -139,7 +173,7 @@ export async function separateStemsOnBackend(fileId) {
 }
 
 export async function previewStyleOnBackend(fileId, mode = "Custom AI adaptive", strength = 72, warmth = 0.3) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/style-preview`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/style-preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId, mode, strength, warmth }),
@@ -148,7 +182,7 @@ export async function previewStyleOnBackend(fileId, mode = "Custom AI adaptive",
 }
 
 export async function generateSoundOnBackend(prompt, intensity = 68, genre = "Cinematic", emotion = "Mystic") {
-  const response = await fetch(`${API_BASE}/api/v1/sound/generate`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/sound/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, intensity, genre, emotion }),
@@ -158,7 +192,7 @@ export async function generateSoundOnBackend(prompt, intensity = 68, genre = "Ci
 }
 
 export async function exportPackageOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/export/package`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/export/package`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -168,7 +202,7 @@ export async function exportPackageOnBackend(fileId) {
 }
 
 export async function getBackendJob(jobId) {
-  const response = await fetch(`${API_BASE}/api/v1/jobs/${jobId}`);
+  const response = await apiFetch(`${API_BASE}/api/v1/jobs/${jobId}`);
   return parseResponse(response, "Job lookup failed");
 }
 
@@ -187,11 +221,11 @@ export async function pollUntilComplete(jobId, onProgress = null, intervalMs = 1
 export async function uploadAndMeasureLufsOnBackend(file) {
   const formData = new FormData();
   formData.append("file", file);
-  const uploadRes = await fetch(`${API_BASE}/api/v1/audio/upload`, { method: "POST", body: formData });
+  const uploadRes = await apiFetch(`${API_BASE}/api/v1/audio/upload`, { method: "POST", body: formData });
   const uploadData = await parseResponse(uploadRes, "Reference upload failed");
   const fileId = uploadData?.file?.file_id;
   if (!fileId) throw new Error("No file ID from reference upload");
-  const analyzeRes = await fetch(`${API_BASE}/api/v1/audio/analyze`, {
+  const analyzeRes = await apiFetch(`${API_BASE}/api/v1/audio/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -201,7 +235,7 @@ export async function uploadAndMeasureLufsOnBackend(file) {
 }
 
 export async function buildReleasePackageOnBackend(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/export/release-package`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/export/release-package`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ file_id: fileId }),
@@ -210,7 +244,7 @@ export async function buildReleasePackageOnBackend(fileId) {
 }
 
 export async function transformStyleOnBackend(fileId, mode, strength, duration = 20) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/transform-style`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/transform-style`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file_id: fileId, mode, strength, duration }),
@@ -219,7 +253,7 @@ export async function transformStyleOnBackend(fileId, mode, strength, duration =
 }
 
 export async function analyzeAiOnBackend(fileId, genre) {
-  const response = await fetch(`${API_BASE}/api/v1/audio/analyze-ai`, {
+  const response = await apiFetch(`${API_BASE}/api/v1/audio/analyze-ai`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file_id: fileId, genre }),
@@ -228,7 +262,7 @@ export async function analyzeAiOnBackend(fileId, genre) {
 }
 
 export async function fetchFileInfo(fileId) {
-  const response = await fetch(`${API_BASE}/api/v1/files/${fileId}`);
+  const response = await apiFetch(`${API_BASE}/api/v1/files/${fileId}`);
   return parseResponse(response, "File not found");
 }
 

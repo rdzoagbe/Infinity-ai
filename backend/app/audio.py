@@ -106,10 +106,12 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
     # astats prints to stderr
     output = stderr + stdout
     def _extract(key: str) -> float | None:
+        import math
         for line in output.splitlines():
             if key in line and "=" in line:
                 try:
-                    return float(line.split("=")[-1].strip())
+                    value = float(line.split("=")[-1].strip())
+                    return value if math.isfinite(value) else None
                 except ValueError:
                     pass
         return None
@@ -120,6 +122,7 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
     flat_factor = _extract("Flat_factor")
     peak_level = _extract("Peak_level")
     noise_floor = _extract("Noise_floor")
+    peak_count = _extract("Peak_count")
 
     result = {}
     if rms_level is not None:
@@ -132,7 +135,39 @@ def analyze_dynamics_via_astats(path: Path) -> dict:
         result["noise_floor_db"] = round(noise_floor, 1)
     if rms_level is not None and noise_floor is not None and noise_floor < 0:
         result["dynamic_range_db"] = round(rms_level - noise_floor, 1)
+    # Clipping: samples sitting at/above full scale. flat_factor > 0 with a
+    # 0 dBFS peak indicates flat-topped (clipped) waveforms.
+    if peak_level is not None:
+        clipped = bool(peak_level >= -0.05 and (flat_factor or 0) > 0)
+        result["clipping_detected"] = clipped
+        if peak_count is not None:
+            result["samples_at_peak"] = int(peak_count)
     return result
+
+
+def measure_phase_correlation(path: Path) -> dict:
+    """Stereo phase correlation via ffmpeg aphasemeter (−1 = out of phase, +1 = mono-safe)."""
+    if not has_ffmpeg():
+        return {}
+    code, stdout, stderr = run_command(
+        ["ffmpeg", "-y", "-i", str(path), "-af", "aphasemeter=video=0:phasing=1,ametadata=print:file=-", "-f", "null", "/dev/null"],
+        timeout=120,
+    )
+    output = stderr + stdout
+    values = []
+    for line in output.splitlines():
+        if "lavfi.aphasemeter.phase" in line and "=" in line:
+            try:
+                values.append(float(line.split("=")[-1].strip()))
+            except ValueError:
+                pass
+    if not values:
+        return {}
+    mean_phase = sum(values) / len(values)
+    return {
+        "phase_correlation": round(mean_phase, 3),
+        "phase_min": round(min(values), 3),
+    }
 
 
 def analyze_spectral_balance(path: Path) -> dict:
@@ -253,6 +288,29 @@ def build_processing_decisions(lufs: dict, dynamics: dict, spectral: dict, genre
     if genre_key in genre_decisions:
         decisions.append(genre_decisions[genre_key])
 
+    # Enrich problems: stable key, confidence, recommended Infinity module +
+    # parameters. Confidence reflects how the issue was derived: direct
+    # threshold on a single measurement (high) vs relational spectral
+    # heuristic (medium).
+    recommendations = {
+        "loudness": ("Infinity Limiter", {"target_lufs": -14}, 0.95),
+        "peak": ("Infinity Limiter", {"tp_ceiling": -1.0}, 0.95),
+        "dynamics": ("Mix Bus Compressor", {"ratio": 1.5}, 0.85),
+        "transients": ("Infinity Opto", {"compression": 0.3}, 0.75),
+        "noise": ("Infinity Clean", {"noise_reduction_db": 20}, 0.85),
+        "sub (20-60 Hz)": ("High-Pass Filter", {"frequency_hz": 30}, 0.7),
+        "low-mid (250-500 Hz)": ("Infinity Dynamic EQ", {"frequency_hz": 350, "gain_db": -2.5}, 0.7),
+        "presence (5-10 kHz)": ("Infinity De-Esser", {"deess": 0.7}, 0.7),
+        "air (10-20 kHz)": ("Infinity Air", {"air": 1.5}, 0.7),
+    }
+    for problem in problems:
+        band = problem.get("band", "")
+        module, params, confidence = recommendations.get(band, ("Infinity chain", {}, 0.6))
+        problem["key"] = band.split(" ")[0].replace("(", "").lower()
+        problem["confidence"] = confidence
+        problem["recommended_module"] = module
+        problem["recommended_parameters"] = params
+
     return {
         "problems": problems,
         "decisions": decisions,
@@ -261,33 +319,34 @@ def build_processing_decisions(lufs: dict, dynamics: dict, spectral: dict, genre
 
 
 def estimate_music_traits(filename: str, metadata: dict) -> dict:
-    seed = sum(ord(c) for c in filename)
-    duration = int(metadata.get("duration_seconds") or 0)
-    sample_rate = int(metadata.get("sample_rate") or 44100)
-    keys = ["A minor", "C minor", "D minor", "F# minor", "G major", "Eb minor", "Bb minor", "E minor"]
-    genres = ["Afrobeat", "Trap Soul", "Cinematic", "Drill", "House", "Gospel", "Soul", "Experimental"]
+    """Musical trait detection status.
+
+    BPM and key detection are NOT implemented server-side yet (no librosa/
+    essentia). We report them as unavailable rather than fabricating values —
+    the UI must show 'Unavailable', never a made-up number.
+    """
     return {
-        "estimated_bpm": 72 + ((seed + duration + sample_rate) % 78),
-        "estimated_key": keys[(seed + duration) % len(keys)],
-        "estimated_genre": genres[(seed + sample_rate) % len(genres)],
-        "vocal_tone": "Warm / Airy" if seed % 2 else "Clean / Forward",
-        "loudness_target": "-14 LUFS / -1.5 dBTP",
-        "mastering_hint": "Balanced streaming master with controlled low-end and vocal presence.",
+        "estimated_bpm": None,
+        "bpm_status": "unavailable",
+        "estimated_key": None,
+        "key_status": "unavailable",
+        "traits_note": "BPM and key detection are not yet implemented. These fields stay empty until a real detector ships.",
     }
 
 
 def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict) -> dict:
+    from .release_check import build_release_check
+
     traits = estimate_music_traits(filename, metadata)
     lufs = measure_lufs(path)
     dynamics = analyze_dynamics_via_astats(path)
     spectral = analyze_spectral_balance(path)
-    genre_key = traits.get("estimated_genre", "custom").lower().split()[0]
-    processing = build_processing_decisions(lufs, dynamics, spectral, genre_key)
+    phase = measure_phase_correlation(path) if (metadata.get("channels") or 2) >= 2 else {}
+    processing = build_processing_decisions(lufs, dynamics, spectral, "custom")
     duration = metadata.get("duration_seconds")
     sample_rate = metadata.get("sample_rate")
     bitrate = metadata.get("bitrate")
-    readiness = "Ready for v10 mastering" if metadata.get("ffmpeg_available") else "Metadata only; FFmpeg missing"
-    return {
+    result = {
         "file_id": file_id,
         "filename": filename,
         "duration_seconds": duration,
@@ -298,7 +357,6 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         "format_name": metadata.get("format_name"),
         "ffmpeg_available": metadata.get("ffmpeg_available"),
         "demucs_available": metadata.get("demucs_available"),
-        "readiness": readiness,
         "quality_flags": {
             "duration_ok": bool(duration and duration > 5),
             "sample_rate_ok": bool(sample_rate and sample_rate >= 44100),
@@ -307,11 +365,14 @@ def full_audio_analysis(filename: str, file_id: str, path: Path, metadata: dict)
         },
         **traits,
         **lufs,
+        **phase,
         "dynamics": dynamics,
         "spectral_balance": spectral,
         "processing_decisions": processing,
-        "note": "Infinity v10 analysis. FFprobe/mutagen metadata is real; BPM/key/genre remain heuristic until Librosa/Essentia integration.",
+        "note": "All numeric measurements are computed from this file. BPM/key report 'unavailable' until real detection ships.",
     }
+    result["technical_release_check"] = build_release_check(result)
+    return result
 
 
 PLATFORM_LUFS: dict[str, int] = {
@@ -613,59 +674,36 @@ def mix_vocal_beat_with_ffmpeg(
     beat_stereo_width: float = 1.5,
     bus_compress: bool = True,
     reverb_amount: float = 0.2,
+    params: dict | None = None,
 ) -> dict:
+    """Render the vocal+beat mix through the parametric Infinity chain.
+
+    ``params`` (see chains.VOCAL_BEAT_DEFAULTS) is the full control surface;
+    the legacy keyword arguments are folded in as fallbacks so old callers
+    keep working.
+    """
+    from .chains import build_vocal_beat_graph, normalize_vocal_beat_params
+
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "FFmpeg not available in this environment."}
 
-    vg = max(0.0, min(2.0, float(vocal_gain)))
-    bg = max(0.0, min(2.0, float(beat_gain)))
-    sw = max(1.0, min(3.0, float(beat_stereo_width)))
-    rv = max(0.0, min(1.0, float(reverb_amount)))
+    merged = {
+        "vocal_gain": vocal_gain,
+        "beat_gain": beat_gain,
+        "presence": 2.0 if vocal_presence_boost else 0.0,
+        "air": 1.8 if vocal_presence_boost else 0.0,
+        "beat_stereo_width": beat_stereo_width,
+        "bus_compress": bus_compress,
+        "reverb": reverb_amount,
+        **(params or {}),
+    }
+    normalized = normalize_vocal_beat_params(merged)
+    filter_complex, chain_report = build_vocal_beat_graph(normalized)
+
     mixed_wav = output_dir / "mixed.wav"
     mixed_mp3 = output_dir / "mixed.mp3"
 
-    # Vocal chain: full professional processing before the mix bus
-    vocal_filters = [
-        f"volume={vg}",                                             # gain staging
-        "afftdn=nf=-22:nr=10",                                     # noise floor cleanup
-        "highpass=f=80:poles=2",                                   # rumble / proximity cut
-        "equalizer=f=200:t=q:w=1.0:g=-2.0",                       # boxy room cut
-        "equalizer=f=1000:t=q:w=1.5:g=-1.2",                      # nasal cut
-        "agate=threshold=0.015:ratio=8:attack=5:release=250",      # breath / room noise gate
-        "acompressor=threshold=-22dB:ratio=3.5:attack=30:release=250:makeup=3:knee=6",  # optical style
-        "asoftclip=type=tanh:threshold=0.65",                      # harmonic saturation
-    ]
-    if vocal_presence_boost:
-        vocal_filters += [
-            "equalizer=f=3200:t=q:w=0.9:g=2.0",   # presence — cuts through the beat
-            "treble=g=1.8:f=12000",                  # air shelf
-        ]
-    # Two-band de-essing (always applied)
-    vocal_filters += [
-        "equalizer=f=7000:t=q:w=2.0:g=-2.5",      # 'S'/'SH' sibilance
-        "equalizer=f=9000:t=q:w=1.8:g=-1.5",      # 'T'/'CH' sibilance
-    ]
-    if rv > 0.05:
-        delay_ms = round(40 + rv * 120)            # 40 ms (room) → 160 ms (hall)
-        decay = round(0.12 + rv * 0.35, 2)         # lighter than standalone: stays in the mix
-        vocal_filters.append(f"aecho=0.85:0.88:{delay_ms}:{decay}")
-    vocal_chain = f"[0:a]{','.join(vocal_filters)}[v]"
-
-    # Beat chain: volume → optional stereo widening
-    beat_filters = [f"volume={bg}"]
-    if sw > 1.0:
-        beat_filters.append(f"extrastereo=m={sw:.1f}")
-    beat_chain = f"[1:a]{','.join(beat_filters)}[b]"
-
-    # Mix bus: amix → optional bus compression → true-peak limiter
-    mix_filters = ["amix=inputs=2:duration=longest:normalize=0"]
-    if bus_compress:
-        mix_filters.append("acompressor=threshold=-12dB:ratio=2:attack=5:release=80:makeup=1.2")
-    mix_filters.append("alimiter=limit=0.95")
-    mix_chain = f"[v][b]{','.join(mix_filters)}[out]"
-
-    filter_complex = f"{vocal_chain};{beat_chain};{mix_chain}"
     cmd = [
         "ffmpeg", "-y",
         "-i", str(vocal_path),
@@ -684,11 +722,8 @@ def mix_vocal_beat_with_ffmpeg(
 
     return {
         "status": "completed",
-        "vocal_gain": vg,
-        "beat_gain": bg,
-        "vocal_presence_boost": vocal_presence_boost,
-        "beat_stereo_width": sw,
-        "bus_compress": bus_compress,
+        "parameters": normalized,
+        "chain": chain_report,
         "wav": str(mixed_wav),
         "wav_exists": mixed_wav.exists(),
         "mp3": str(mixed_mp3) if mp3_code == 0 else None,
@@ -911,7 +946,7 @@ def render_style_preview_with_ffmpeg(input_path: Path, output_dir: Path, mode: s
     }
 
 
-def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0, dynamics: dict | None = None, spectral: dict | None = None) -> dict:
+def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, strength: int, platform: str = "spotify", air_boost: bool = False, warmth: float = 0.0, low_eq: float = 0.0, mid_eq: float = 0.0, high_eq: float = 0.0, dynamics: dict | None = None, spectral: dict | None = None, target_lufs_override: float | None = None, tp_ceiling: float | None = None) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not has_ffmpeg():
         return {"status": "skipped", "reason": "ffmpeg/ffprobe not found", "install_hint": "Install FFmpeg locally or keep Railway Dockerfile with apt-get ffmpeg."}
@@ -928,6 +963,11 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
     platform_lufs = _lufs_for_platform(platform)
     genre_lufs = _genre_lufs(genre_key)
     target_lufs = round((platform_lufs + genre_lufs) / 2, 1)
+    if target_lufs_override is not None:
+        target_lufs = round(max(-24.0, min(-6.0, float(target_lufs_override))), 1)
+    ceiling_dbtp = -1.0
+    if tp_ceiling is not None:
+        ceiling_dbtp = round(max(-3.0, min(-0.1, float(tp_ceiling))), 2)
     wav_path = output_dir / "mastered.wav"
     mp3_path = output_dir / "mastered.mp3"
     preview_path = output_dir / "mastered-preview.mp3"
@@ -942,8 +982,12 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         compress_ratio = round(max(1.2, compress_ratio + ratio_delta), 2)
 
     makeup = round(1.0 + intensity * 1.2, 2)
-    # True-peak ceiling ~ -1 dBTP (0.891 linear), opening slightly with strength
-    limit = round(0.89 + intensity * 0.04, 3)
+    # Limiter ceiling from the requested dBTP ceiling (default −1 dBTP ≈ 0.891
+    # linear), opening slightly with strength when no explicit ceiling is set.
+    if tp_ceiling is not None:
+        limit = round(10 ** (ceiling_dbtp / 20), 3)
+    else:
+        limit = round(0.89 + intensity * 0.04, 3)
 
     safe_warmth = max(0.0, min(1.0, float(warmth)))
     # Push signal into the saturation curve, then let loudnorm fix the level.
@@ -970,7 +1014,7 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         # Transparent soft-knee compression — musical, not robotic
         f"acompressor=threshold={compress_threshold:.1f}dB:ratio={compress_ratio}:attack=20:release=200:knee=4:makeup={makeup}",
         f"extrastereo=m={stereo_width:.2f}",                     # genre-tuned stereo width
-        f"loudnorm=I={target_lufs}:TP=-1.0:LRA=11",             # streaming loudness (LRA=11 keeps dynamics)
+        f"loudnorm=I={target_lufs}:TP={ceiling_dbtp}:LRA=11",   # streaming loudness (LRA=11 keeps dynamics)
         f"alimiter=limit={limit}",                               # true-peak ceiling
     ]
     audio_filter = ",".join(filters)

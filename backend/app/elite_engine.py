@@ -137,7 +137,12 @@ def build_master_plan(analysis: dict[str, Any]) -> dict[str, Any]:
 def build_elite_engineering_report(analysis: dict[str, Any]) -> dict[str, Any]:
     return {
         "system": "Infinity AI Elite Mixing and Mastering Engineer",
-        "analysis_summary": analysis,
+        # Snapshot of key measurements only — embedding the full analysis dict
+        # creates a circular reference once this report is attached back to it.
+        "analysis_summary": {
+            k: analysis.get(k)
+            for k in ("integrated_lufs", "true_peak_dbtp", "lra", "duration_seconds", "sample_rate", "channels")
+        },
         "mix_plan": build_mix_plan(analysis),
         "master_plan": build_master_plan(analysis),
         "quality_flags": build_quality_flags(analysis),
