@@ -354,7 +354,7 @@ function NavRow({ onBack, nextLabel, onNext, nextDisabled, secondaryLabel, onSec
   );
 }
 
-export default function AudioMVPV2({ open, onClose }) {
+export default function AudioMVPV2({ open, onClose, embedded = false }) {
   const isMobile = useIsMobile();
   const [step, setStep] = useState(1);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -1596,9 +1596,14 @@ export default function AudioMVPV2({ open, onClose }) {
     }
   };
 
+  // Embedded mode renders the studio inline as routed page content; overlay
+  // mode keeps the legacy full-screen behaviour.
+  const wrapper = embedded ? { width: '100%' } : overlay;
+  const shellStyle = embedded ? { ...shell, margin: 0, maxWidth: 'none', minHeight: 'auto' } : shell;
+
   return (
-    <div style={overlay}>
-      <div style={shell}>
+    <div style={wrapper}>
+      <div style={shellStyle}>
         {/* Studio header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '14px 16px 12px' : '18px 28px 14px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
