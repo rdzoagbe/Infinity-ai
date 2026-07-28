@@ -1016,6 +1016,13 @@ export default function BaseInfinityApp() {
   const [abPlaying, setAbPlaying] = useState(false);
   const [abSide, setAbSide] = useState('master');
   const [mixMode, setMixMode] = useState('simple');
+  const [theme, setTheme] = useState(() => localStorage.getItem('infinity_theme') || 'dark');
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('infinity_theme', next);
+  };
   const [toastState, toast] = useToast();
 
   const openStudio = () => window.dispatchEvent(new CustomEvent('infinity:open-studio'));
@@ -1034,7 +1041,7 @@ export default function BaseInfinityApp() {
   const [title, crumb] = VIEW_TITLES[view] || [view, ''];
 
   return (
-    <div className="app">
+    <div className="app" data-theme={theme}>
       {sidebarOpen && <div className="shade" onClick={() => setSidebarOpen(false)} />}
 
       <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
@@ -1089,6 +1096,13 @@ export default function BaseInfinityApp() {
           </div>
           <div className="top-actions">
             <div className="status-pill"><span className="dot" /> Audio engine online</div>
+            <button className="btn ghost theme-toggle" data-infinity-local-action="true" onClick={toggleTheme} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+              {theme === 'dark' ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              )}
+            </button>
             <button className="btn ghost" data-infinity-local-action="true" onClick={() => navigate('docs')}>Documentation</button>
             <button className="btn primary" onClick={openStudio}>＋ New project</button>
           </div>
