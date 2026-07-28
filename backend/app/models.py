@@ -52,13 +52,15 @@ class AnalyzeRequest(BaseModel):
 class ProcessRequest(BaseModel):
     file_id: str
     mode: str = "Custom AI adaptive"
-    strength: int = 72
+    strength: int = Field(default=72, ge=0, le=100)
     platform: str = "spotify"
     air_boost: bool = False
-    warmth: float = 0.0  # 0.0 = clean digital, 1.0 = heavy tape/tube saturation
-    low_eq: float = 0.0   # dB adjustment for bass (<200 Hz), range -12 to +12
-    mid_eq: float = 0.0   # dB adjustment for mids (200 Hz–4 kHz)
-    high_eq: float = 0.0  # dB adjustment for highs (>4 kHz)
+    warmth: float = Field(default=0.0, ge=0.0, le=1.0)   # 0 = clean digital, 1 = heavy saturation
+    low_eq: float = Field(default=0.0, ge=-12.0, le=12.0)   # dB, bass (<200 Hz)
+    mid_eq: float = Field(default=0.0, ge=-12.0, le=12.0)   # dB, mids (200 Hz–4 kHz)
+    high_eq: float = Field(default=0.0, ge=-12.0, le=12.0)  # dB, highs (>4 kHz)
+    target_lufs: float | None = Field(default=None, ge=-24.0, le=-6.0)  # overrides platform/genre blend
+    tp_ceiling: float | None = Field(default=None, ge=-3.0, le=-0.1)    # dBTP limiter ceiling
 
 
 class CleanVocalsRequest(BaseModel):
@@ -66,14 +68,47 @@ class CleanVocalsRequest(BaseModel):
 
 
 class MixVocalBeatRequest(BaseModel):
+    """Full parametric control surface for the vocal+beat mix.
+
+    Every value is clamped again server-side in chains.normalize_vocal_beat_params —
+    these bounds reject clearly invalid payloads early.
+    """
     vocal_file_id: str
     beat_file_id: str
-    vocal_gain: float = 1.0
-    beat_gain: float = 0.85
-    vocal_presence_boost: bool = True
-    beat_stereo_width: float = 1.5
+    vocal_gain: float = Field(default=1.0, ge=0.0, le=2.0)
+    beat_gain: float = Field(default=0.85, ge=0.0, le=2.0)
+    vocal_mute: bool = False
+    beat_mute: bool = False
+    presence: float = Field(default=2.0, ge=-6.0, le=6.0)     # dB bell at 3.2 kHz
+    air: float = Field(default=1.8, ge=0.0, le=6.0)           # dB shelf at 12 kHz
+    clarity: float = Field(default=0.0, ge=-6.0, le=6.0)      # dB bell at 1.8 kHz
+    warmth: float = Field(default=0.25, ge=0.0, le=1.0)       # Infinity Harmonics amount
+    deess: float = Field(default=0.5, ge=0.0, le=1.0)         # Infinity De-Esser amount
+    compression: float = Field(default=0.5, ge=0.0, le=1.0)   # Infinity Opto amount
+    reverb_amount: float = Field(default=0.2, ge=0.0, le=1.0)  # Infinity Space send
+    delay_amount: float = Field(default=0.0, ge=0.0, le=1.0)   # Infinity Echo send
+    beat_stereo_width: float = Field(default=1.5, ge=1.0, le=3.0)
     bus_compress: bool = True
-    reverb_amount: float = 0.2  # 0.0 = dry, 1.0 = large hall
+    # Legacy field kept for old clients; superseded by presence/air.
+    vocal_presence_boost: bool = True
+
+    def chain_params(self) -> dict:
+        return {
+            "vocal_gain": self.vocal_gain,
+            "beat_gain": self.beat_gain,
+            "vocal_mute": self.vocal_mute,
+            "beat_mute": self.beat_mute,
+            "presence": self.presence,
+            "air": self.air,
+            "clarity": self.clarity,
+            "warmth": self.warmth,
+            "deess": self.deess,
+            "compression": self.compression,
+            "reverb": self.reverb_amount,
+            "delay": self.delay_amount,
+            "beat_stereo_width": self.beat_stereo_width,
+            "bus_compress": self.bus_compress,
+        }
 
 
 class EnhanceMixRequest(BaseModel):

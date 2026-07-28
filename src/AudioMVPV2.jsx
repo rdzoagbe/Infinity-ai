@@ -8,7 +8,6 @@ import {
   cleanFullMixOnBackend,
   enhanceMixOnBackend,
   masterAudioOnBackend,
-  mixVocalBeatOnBackend,
   pollUntilComplete,
   previewStyleOnBackend,
   separateStemsOnBackend,
@@ -18,6 +17,7 @@ import {
   uploadAudioToBackend,
   uploadAndMeasureLufsOnBackend,
 } from './api/infinityBackend.js';
+import VocalBeatMixer from './studio/VocalBeatMixer.jsx';
 
 const STEPS = [
   { id: 1, label: 'Upload' },
@@ -354,7 +354,7 @@ function NavRow({ onBack, nextLabel, onNext, nextDisabled, secondaryLabel, onSec
   );
 }
 
-export default function AudioMVPV2({ open, onClose, embedded = false }) {
+export default function AudioMVPV2({ open, onClose, embedded = false, projectId = null }) {
   const isMobile = useIsMobile();
   const [step, setStep] = useState(1);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -394,6 +394,8 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
   const [lowEq, setLowEq] = useState(0);
   const [midEq, setMidEq] = useState(0);
   const [highEq, setHighEq] = useState(0);
+  const [masterTargetLufs, setMasterTargetLufs] = useState(null);  // null = automatic platform/genre blend
+  const [masterTpCeiling, setMasterTpCeiling] = useState(null);    // null = automatic (-1 dBTP)
 
   // style preview (Step 3)
   const [stylePreviewUrl, setStylePreviewUrl] = useState('');
@@ -403,11 +405,8 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
   const [refLufs, setRefLufs] = useState(null);
   const [refBusy, setRefBusy] = useState(false);
 
-  // vocals-only + beat mode
-  const [isVocalOnly, setIsVocalOnly] = useState(false);
-  const [beatFile, setBeatFile] = useState(null);
-  const [beatFileId, setBeatFileId] = useState(null);
-  const [vocalBeatBusy, setVocalBeatBusy] = useState(false);
+  // import mode: 'song' (finished recording) | 'vocalbeat' (separate vocal + beat)
+  const [uploadMode, setUploadMode] = useState('song');
 
   // mix templates (learn from past masters)
   const [templates, setTemplates] = useState(() => loadTemplates());
@@ -421,8 +420,6 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
   const [masterProgressMsg, setMasterProgressMsg] = useState('');
   const [styleProgress, setStyleProgress] = useState(null);
   const [styleProgressMsg, setStyleProgressMsg] = useState('');
-  const [vocalBeatProgress, setVocalBeatProgress] = useState(null);
-  const [vocalBeatProgressMsg, setVocalBeatProgressMsg] = useState('');
 
   const [masterJob, setMasterJob] = useState(null);
   const [stemJob, setStemJob] = useState(null);
@@ -581,44 +578,6 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
     finally { setRefBusy(false); }
   };
 
-  const handleBeatFile = async (file) => {
-    setBeatFile(file);
-    setVocalBeatBusy(true); setError('');
-    setStatus('Uploading beat…');
-    try {
-      const res = await uploadAudioToBackend(file);
-      setBeatFileId(res.file.file_id);
-      setStatus('Beat uploaded. Click "Mix vocals + beat" to combine them.');
-    } catch (err) {
-      setError(`Beat upload failed: ${safeError(err)}`);
-    } finally {
-      setVocalBeatBusy(false);
-    }
-  };
-
-  const runVocalBeatMix = async () => {
-    if (!songBackend?.file_id || !beatFileId) return;
-    setVocalBeatBusy(true); setError(''); setVocalBeatProgress(0); setVocalBeatProgressMsg('Starting…');
-    setStatus('Mixing vocals with beat — applying vocal clean, EQ, stereo, compression…');
-    try {
-      const init = await mixVocalBeatOnBackend(songBackend.file_id, beatFileId);
-      const jobId = init?.job_id;
-      let job = init;
-      if (jobId) {
-        job = await pollUntilComplete(jobId, (p, msg) => { setVocalBeatProgress(p); setVocalBeatProgressMsg(msg); });
-      }
-      const mid = job?.result?.mixed_file_id;
-      if (mid) {
-        setEnhancedFileId(mid);
-        setEnhancedPreviewUrl(backendUrl(`/api/v1/files/${mid}/download/original`));
-      }
-      setStatus('Vocals + beat mixed. Listen below, then choose your sound style.');
-    } catch (err) {
-      setError(`Vocal/beat mix failed: ${safeError(err)}`);
-    } finally {
-      setVocalBeatBusy(false); setVocalBeatProgress(null);
-    }
-  };
 
   const runClean = async () => {
     if (!songBackend?.file_id) return;
@@ -802,7 +761,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
     setBusy(true); setError(''); setMasterProgress(0); setMasterProgressMsg('Queuing master…');
     setStatus(`Mastering for ${platformLabel} · ${mode}${airBoost ? ' + air boost' : ''}${overrideStrength ? ` · ${s}% intensity` : ''}…`);
     try {
-      const init = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq);
+      const init = await masterAudioOnBackend(targetId, mode, s, platform, airBoost, warmth / 100, lowEq, midEq, highEq, masterTargetLufs, masterTpCeiling);
       const jobId = init?.job_id;
       let job = init;
       if (jobId) {
@@ -935,10 +894,40 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
 
       case 1: return ( // ─── UPLOAD ───
         <div>
-          <h3 style={{ margin: '0 0 6px' }}>Step 1 — Upload your song</h3>
-          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 18, lineHeight: 1.6 }}>
-            Upload your finished recording — beat and vocals already together. MP3 or WAV recommended.
+          <h3 style={{ margin: '0 0 6px' }}>Step 1 — Import</h3>
+          <p style={{ color: 'rgba(245,248,255,.58)', marginBottom: 14, lineHeight: 1.6 }}>
+            Start from a finished recording, or bring a separate vocal and beat to mix here.
           </p>
+          {/* Import mode switch */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button
+              data-infinity-local-action="true"
+              className={uploadMode === 'song' ? 'primary' : 'secondary'}
+              onClick={() => setUploadMode('song')}
+              style={{ flex: 1, padding: '10px 0', fontSize: 13 }}
+            >Full song</button>
+            <button
+              data-infinity-local-action="true"
+              className={uploadMode === 'vocalbeat' ? 'primary' : 'secondary'}
+              onClick={() => setUploadMode('vocalbeat')}
+              style={{ flex: 1, padding: '10px 0', fontSize: 13 }}
+            >Vocal + Beat</button>
+          </div>
+          {uploadMode === 'vocalbeat' ? (
+            <div>
+              <VocalBeatMixer
+                projectKey={projectId || 'studio'}
+                onMixed={({ mixedFileId, previewUrl }) => {
+                  setEnhancedFileId(mixedFileId);
+                  if (previewUrl) setEnhancedPreviewUrl(previewUrl);
+                  setSongBackend((current) => current || { file_id: mixedFileId, filename: 'mixed.wav' });
+                  setStatus('Mix rendered — continue to shape or master it.');
+                }}
+              />
+              <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!enhancedFileId || busy} />
+            </div>
+          ) : (
+          <div>
           {/* Recent files list — shown when no file is loaded yet */}
           {!songFile && !songBackend && recentFiles.length > 0 && (
             <div style={{ marginBottom: 16, border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, overflow: 'hidden' }}>
@@ -1095,6 +1084,8 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
           )}
 
           <NavRow nextLabel="Shape my sound →" onNext={() => go(2)} nextDisabled={!songBackend || busy} />
+          </div>
+          )}
         </div>
       );
 
@@ -1257,6 +1248,29 @@ export default function AudioMVPV2({ open, onClose, embedded = false }) {
                     <button data-infinity-local-action="true" className="secondary" style={{ fontSize: 12, padding: '6px 12px' }}
                       onClick={() => { setLowEq(0); setMidEq(0); setHighEq(0); }}>Reset EQ</button>
                   </div>
+                </div>
+                {/* Mastering target overrides */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>Mastering target</div>
+                  <div data-infinity-local-action="true" onClick={() => { setMasterTargetLufs(masterTargetLufs == null ? -14 : null); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10, userSelect: 'none' }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${masterTargetLufs == null ? '#57f09c' : 'rgba(255,255,255,.2)'}`, background: masterTargetLufs == null ? '#57f09c22' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#57f09c' }}>{masterTargetLufs == null ? '✓' : ''}</div>
+                    <span style={{ fontSize: 13 }}>Automatic loudness (platform + genre blend)</span>
+                  </div>
+                  {masterTargetLufs != null && (
+                    <>
+                      <label className="range" style={{ marginBottom: 10 }}>
+                        <span>Target loudness <b style={{ color: '#55e9ff' }}>{masterTargetLufs} LUFS</b></span>
+                        <input type="range" min="-24" max="-6" step="0.5" value={masterTargetLufs} data-infinity-local-action="true"
+                          onChange={e => setMasterTargetLufs(Number(e.target.value))} />
+                      </label>
+                      <label className="range" style={{ marginBottom: 10 }}>
+                        <span>True-peak ceiling <b style={{ color: '#ffcf66' }}>{masterTpCeiling ?? -1} dBTP</b></span>
+                        <input type="range" min="-3" max="-0.1" step="0.1" value={masterTpCeiling ?? -1} data-infinity-local-action="true"
+                          onChange={e => setMasterTpCeiling(Number(e.target.value))} />
+                      </label>
+                    </>
+                  )}
                 </div>
               </div>
             )}

@@ -277,7 +277,7 @@ def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
         input_path = style_prev if style_prev.exists() else enhanced if enhanced.exists() else cleaned if cleaned.exists() else Path(file_data["stored_path"])
         output_dir = renders
         update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ + adaptive corrections…")
-        render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq, dynamics=dynamics, spectral=spectral)
+        render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq, dynamics=dynamics, spectral=spectral, target_lufs_override=payload.target_lufs, tp_ceiling=payload.tp_ceiling)
         update_job_progress(job_id, 90, "Encoding WAV + MP3…")
         result = {"file_id": payload.file_id, "mode": payload.mode, "strength": payload.strength, "target_lufs": render.get("target_lufs", "-14 / -1.5 dBTP"), "render": render, "downloads": {}}
         if render.get("status") == "completed":
@@ -619,7 +619,7 @@ def _run_vocal_beat_mix(job_id: str, vocal_data: dict, payload: MixVocalBeatRequ
             vocal_path = cleaned_vocal
         output_dir = Path(vocal_data["workspace"]) / "renders"
         update_job_progress(job_id, 35, "Applying vocal presence + EQ…")
-        mix_result = mix_vocal_beat_with_ffmpeg(vocal_path, beat_path, output_dir, payload.vocal_gain, payload.beat_gain, payload.vocal_presence_boost, payload.beat_stereo_width, payload.bus_compress, payload.reverb_amount)
+        mix_result = mix_vocal_beat_with_ffmpeg(vocal_path, beat_path, output_dir, params=payload.chain_params())
         update_job_progress(job_id, 80, "Bus compression + finalizing…")
         mixed_file_id = None
         if mix_result.get("status") == "completed":

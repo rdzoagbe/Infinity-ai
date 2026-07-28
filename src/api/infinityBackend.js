@@ -86,11 +86,14 @@ export async function analyzeAudioOnBackend(fileId) {
   return parseResponse(response, "Analysis failed");
 }
 
-export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0, lowEq = 0.0, midEq = 0.0, highEq = 0.0) {
+export async function masterAudioOnBackend(fileId, mode = "Custom AI adaptive", strength = 80, platform = "spotify", airBoost = false, warmth = 0.0, lowEq = 0.0, midEq = 0.0, highEq = 0.0, targetLufs = null, tpCeiling = null) {
+  const body = { file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth, low_eq: lowEq, mid_eq: midEq, high_eq: highEq };
+  if (targetLufs != null) body.target_lufs = targetLufs;
+  if (tpCeiling != null) body.tp_ceiling = tpCeiling;
   const response = await apiFetch(`${API_BASE}/api/v1/audio/master`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, mode, strength, platform, air_boost: airBoost, warmth, low_eq: lowEq, mid_eq: midEq, high_eq: highEq }),
+    body: JSON.stringify(body),
   });
 
   return parseResponse(response, "Mastering job failed");
@@ -130,24 +133,29 @@ export async function cleanVocalsOnBackend(fileId) {
   return parseResponse(response, "Vocal cleaning failed");
 }
 
-export async function mixVocalBeatOnBackend(
-  vocalFileId, beatFileId,
-  vocalGain = 1.0, beatGain = 0.85,
-  vocalPresenceBoost = true, beatStereoWidth = 1.5, busCompress = true,
-  reverbAmount = 0.2,
-) {
+// params: the full Infinity chain control surface — see chains.VOCAL_BEAT_DEFAULTS
+// on the backend. All values are validated and clamped server-side.
+export async function mixVocalBeatOnBackend(vocalFileId, beatFileId, params = {}) {
   const response = await apiFetch(`${API_BASE}/api/v1/audio/mix-vocal-beat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       vocal_file_id: vocalFileId,
       beat_file_id: beatFileId,
-      vocal_gain: vocalGain,
-      beat_gain: beatGain,
-      vocal_presence_boost: vocalPresenceBoost,
-      beat_stereo_width: beatStereoWidth,
-      bus_compress: busCompress,
-      reverb_amount: reverbAmount,
+      vocal_gain: params.vocalGain ?? 1.0,
+      beat_gain: params.beatGain ?? 0.85,
+      vocal_mute: params.vocalMute ?? false,
+      beat_mute: params.beatMute ?? false,
+      presence: params.presence ?? 2.0,
+      air: params.air ?? 1.8,
+      clarity: params.clarity ?? 0.0,
+      warmth: params.warmth ?? 0.25,
+      deess: params.deess ?? 0.5,
+      compression: params.compression ?? 0.5,
+      reverb_amount: params.reverb ?? 0.2,
+      delay_amount: params.delay ?? 0.0,
+      beat_stereo_width: params.beatStereoWidth ?? 1.5,
+      bus_compress: params.busCompress ?? true,
     }),
   });
 
