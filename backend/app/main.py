@@ -16,7 +16,7 @@ from .auth import CurrentUser, current_user, owns, rate_limit, sign_path, verify
 from .config import get_settings
 from .elite_engine import build_elite_engineering_report
 from .models import AiAnalyzeRequest, AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
-from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, audit, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress, user_storage_bytes
+from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, audit, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress, usage, user_storage_bytes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("infinity.api")
@@ -197,6 +197,9 @@ async def upload_audio(file: UploadFile = File(...), user: CurrentUser = Depends
     FILES[file_id] = record
     save_store()
     audit("file.upload", user.user_id, file_id=file_id, size_bytes=size)
+    usage("uploaded_bytes", user.user_id, size)
+    if isinstance(metadata.get("duration_seconds"), (int, float)):
+        usage("audio_seconds_uploaded", user.user_id, round(metadata["duration_seconds"], 1))
     job = create_job(JobType.upload, user_id=user.user_id, message="Upload complete", result={"file": record})
     return {"file": record, "job": job}
 
@@ -955,6 +958,56 @@ REFERENCE TARGETS for {payload.genre}:
         }, "AI analysis complete")
     except Exception as e:
         fail_job(job_id, str(e))
+
+
+
+@app.get("/api/v1/admin/overview")
+def admin_overview(request: Request):
+    """Internal ops view. Requires INFINITY_ADMIN_TOKEN; disabled when unset."""
+    token = request.headers.get("x-admin-token", "")
+    if not settings.infinity_admin_token or token != settings.infinity_admin_token:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    from .models import JobStatus
+
+    jobs = list(JOBS.values())
+    by_status: dict[str, int] = {}
+    durations: list[float] = []
+    for job in jobs:
+        by_status[job.status.value] = by_status.get(job.status.value, 0) + 1
+        if job.status == JobStatus.completed:
+            try:
+                durations.append((job.updated_at - job.created_at).total_seconds())
+            except Exception:
+                pass
+
+    total_bytes = sum(f.get("size_bytes", 0) for f in FILES.values())
+    audio_seconds = sum(
+        f.get("metadata", {}).get("duration_seconds") or 0
+        for f in FILES.values()
+        if isinstance(f.get("metadata", {}).get("duration_seconds"), (int, float))
+    )
+    users = {f.get("user_id") for f in FILES.values() if f.get("user_id")}
+    users |= {p.get("user_id") for p in PROJECTS.values() if p.get("user_id")}
+
+    completed = by_status.get("completed", 0)
+    failed = by_status.get("failed", 0)
+    return {
+        "jobs": {
+            "by_status": by_status,
+            "active": by_status.get("processing", 0) + by_status.get("queued", 0),
+            "failed": failed,
+            "failure_rate": round(failed / max(1, failed + completed), 3),
+            "avg_duration_s": round(sum(durations) / len(durations), 1) if durations else None,
+        },
+        "storage": {"files": len(FILES), "total_bytes": total_bytes, "total_mb": round(total_bytes / 1048576, 1)},
+        "audio_minutes_processed": round(audio_seconds / 60, 1),
+        "users": len(users),
+        "projects": len(PROJECTS),
+        "sound_assets": len(SOUND_ASSETS),
+        "capabilities": {"ffmpeg": has_ffmpeg(), "demucs": has_demucs()},
+        "environment": settings.infinity_env,
+    }
 
 
 @app.get("/api/v1/jobs/{job_id}")

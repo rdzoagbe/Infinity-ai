@@ -132,6 +132,13 @@ def update_job_progress(job_id: str, progress: int, message: str) -> None:
         job.updated_at = datetime.utcnow()
 
 
+def _job_duration_s(job: Job) -> float:
+    try:
+        return round((datetime.utcnow() - job.created_at).total_seconds(), 2)
+    except Exception:
+        return 0.0
+
+
 def fail_job(job_id: str, message: str) -> None:
     job = JOBS.get(job_id)
     if job:
@@ -139,6 +146,9 @@ def fail_job(job_id: str, message: str) -> None:
         job.message = message
         job.updated_at = datetime.utcnow()
         save_store()
+        duration = _job_duration_s(job)
+        logger.warning("job.failed type=%s id=%s duration_s=%.1f", job.job_type.value, job.job_id, duration)
+        usage("job_failed", job.user_id, 1, job_type=job.job_type.value, duration_s=duration)
 
 
 def complete_job(job: Job, result: dict, message: str = "Completed") -> Job:
@@ -149,4 +159,29 @@ def complete_job(job: Job, result: dict, message: str = "Completed") -> Job:
     job.updated_at = datetime.utcnow()
     JOBS[job.job_id] = job
     save_store()
+    duration = _job_duration_s(job)
+    logger.info("job.completed type=%s id=%s duration_s=%.1f", job.job_type.value, job.job_id, duration)
+    usage("job_completed", job.user_id, 1, job_type=job.job_type.value, duration_s=duration)
     return job
+
+
+_usage_path = None
+
+
+def _get_usage_path():
+    global _usage_path
+    if _usage_path is None:
+        from .config import get_settings
+        _usage_path = get_settings().storage_path / "usage.log"
+    return _usage_path
+
+
+def usage(metric: str, user_id: str, amount: float = 1, **detail) -> None:
+    """Append a usage record (JSONL). Aggregated by the admin overview."""
+    try:
+        entry = {"ts": datetime.utcnow().isoformat(), "metric": metric, "user_id": user_id, "amount": amount, **detail}
+        with _lock:
+            with _get_usage_path().open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, default=str) + "\n")
+    except Exception:
+        pass

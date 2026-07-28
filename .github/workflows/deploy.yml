@@ -1,4 +1,4 @@
-name: Build AudioMagic MVP
+name: CI
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Job id stays `build` — it is the required status check on PRs.
   build:
     runs-on: ubuntu-latest
 
@@ -22,11 +23,40 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg (audio regression tests)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install frontend dependencies
         run: npm install --no-package-lock
 
-      - name: Show TypeScript config
-        run: npx tsc --showConfig | grep -E 'moduleResolution|target|module'
+      - name: Lint
+        run: npm run lint
 
-      - name: Build app
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Frontend unit tests
+        run: npm test
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Backend tests (auth, ownership, chains, audio regression)
+        run: python -m pytest backend/tests -q
+        working-directory: .
+
+      - name: Build frontend
         run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium --with-deps
+
+      - name: Playwright smoke test (core workflow)
+        run: npm run test:e2e
+        env:
+          CI: 'true'

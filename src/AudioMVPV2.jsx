@@ -257,7 +257,7 @@ function LoudnessMatchedPlayer({ src, gainDb = 0, color = '#b78aff' }) {
       audio.removeEventListener('play', resume);
       ac.close().catch(() => {});
     };
-  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [src]);
 
   // Apply gain change without rebuilding the graph
   useEffect(() => {

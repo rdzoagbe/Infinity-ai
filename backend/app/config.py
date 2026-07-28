@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     infinity_signing_secret: str = ""
     infinity_download_ttl_seconds: int = 7 * 86400
 
+    # Admin overview endpoint token (unset = endpoint disabled)
+    infinity_admin_token: str = ""
+
     # Limits & retention
     infinity_max_user_storage_mb: int = 2048
     infinity_rate_limit_per_minute: int = 20
