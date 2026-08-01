@@ -149,7 +149,7 @@ export default function VocalBeatMixer({ projectKey, onMixed }) {
           created_at: new Date().toISOString(),
         },
       }));
-      if (mid && onMixed) onMixed({ mixedFileId: mid, previewUrl: url });
+      if (mid && onMixed) onMixed({ mixedFileId: mid, previewUrl: url, originalDownload: result.downloads?.mixed_original || '' });
     } catch (err) {
       setError(`Mix failed: ${safeError(err)}`);
     } finally {

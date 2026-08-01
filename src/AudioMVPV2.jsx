@@ -357,7 +357,7 @@ function NavRow({ onBack, nextLabel, onNext, nextDisabled, secondaryLabel, onSec
   );
 }
 
-export default function AudioMVPV2({ open, onClose, embedded = false, projectId = null }) {
+export default function AudioMVPV2({ open, onClose, embedded = false, projectId = null, projectTitle = '' }) {
   const isMobile = useIsMobile();
   const [step, setStep] = useState(1);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -367,7 +367,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
   const [copied, setCopied] = useState('');
 
   // project
-  const [projectName, setProjectName] = useState('');
+  const [projectName, setProjectName] = useState(projectTitle || '');
 
   // upload
   const [songFile, setSongFile] = useState(null);
@@ -916,10 +916,11 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
   };
 
   const masterDownloads = masterJob?.result?.downloads || {};
-  const bust = masterCacheBust ? `?t=${masterCacheBust}` : '';
+  // Signed download URLs change on every render (new exp/sig), so they are
+  // naturally cache-busted; appending ?t= would corrupt the signature.
   const masterWavUrl = masterDownloads.master_wav ? backendUrl(masterDownloads.master_wav) : '';
   const masterMp3Url = masterDownloads.master_mp3 ? backendUrl(masterDownloads.master_mp3) : '';
-  const masterPreviewUrl = masterDownloads.master_preview ? `${backendUrl(masterDownloads.master_preview)}${bust}` : '';
+  const masterPreviewUrl = masterDownloads.master_preview ? backendUrl(masterDownloads.master_preview) : '';
   const originalDownloadUrl = songBackend?.downloads?.original
     ? backendUrl(songBackend.downloads.original)
     : (songBackend?.file_id ? backendUrl(`/api/v1/files/${songBackend.file_id}/download/original`) : '');
@@ -970,10 +971,14 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
             <div>
               <VocalBeatMixer
                 projectKey={projectId || 'studio'}
-                onMixed={({ mixedFileId, previewUrl }) => {
+                onMixed={({ mixedFileId, previewUrl, originalDownload }) => {
                   setEnhancedFileId(mixedFileId);
                   if (previewUrl) setEnhancedPreviewUrl(previewUrl);
-                  setSongBackend((current) => current || { file_id: mixedFileId, filename: 'mixed.wav' });
+                  setSongBackend((current) => current || {
+                    file_id: mixedFileId,
+                    filename: 'mixed.wav',
+                    downloads: originalDownload ? { original: originalDownload } : undefined,
+                  });
                   setStatus('Mix rendered — continue to shape or master it.');
                 }}
               />

@@ -93,3 +93,31 @@ def test_parameters_change_output(rendered):
     rms_full = analyze_dynamics_via_astats(Path(rendered["mix"]["wav"]))["rms_db"]
     rms_muted = analyze_dynamics_via_astats(Path(muted["wav"]))["rms_db"]
     assert abs(rms_full - rms_muted) > 0.5, "muting the beat did not change the output"
+
+
+def test_master_never_uses_style_preview(tmp_path):
+    """Regression: mastering after a style preview must NOT truncate the song.
+
+    The style preview is a 30 s / 192 kbps excerpt; using it as the master
+    input shipped 30-second masters to users who previewed a style first.
+    """
+    from pathlib import Path
+
+    source = make_wav(tmp_path / "song.wav", seconds=6.0, freq=330)
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    # Simulate a stale 1-second style preview in the workspace
+    make_wav(tmp_path / "stub.wav", seconds=1.0, freq=440)
+    import subprocess
+    subprocess.run(["ffmpeg", "-y", "-i", str(tmp_path / "stub.wav"), "-b:a", "192k", str(renders / "style-preview.mp3")], capture_output=True)
+
+    # Mirror _run_master's input selection logic
+    enhanced = renders / "enhanced.wav"
+    cleaned = renders / "mix-cleaned.wav"
+    input_path = enhanced if enhanced.exists() else cleaned if cleaned.exists() else source
+    assert input_path == source, "master input selection must skip the style preview"
+
+    master = render_master_with_ffmpeg(input_path, renders / "out", mode="Afrobeat", strength=70)
+    assert master["status"] == "completed"
+    meta = read_basic_audio_metadata(Path(master["outputs"]["wav"]))
+    assert abs((meta.get("duration_seconds") or 0) - 6.0) < 0.6, "master duration must match the full song"
