@@ -63,7 +63,7 @@ export default function ProjectWorkspace() {
           <button className="primary" onClick={() => navigate('/app/settings')}>Switch account</button>
         </section>
       ) : (
-        <AudioMVP open embedded projectId={projectId} onClose={() => navigate('/app/projects')} />
+        <AudioMVP open embedded projectId={projectId} projectTitle={project.title} onClose={() => navigate('/app/projects')} />
       )}
 
       <VersionHistory

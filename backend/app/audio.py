@@ -982,12 +982,11 @@ def render_master_with_ffmpeg(input_path: Path, output_dir: Path, mode: str, str
         compress_ratio = round(max(1.2, compress_ratio + ratio_delta), 2)
 
     makeup = round(1.0 + intensity * 1.2, 2)
-    # Limiter ceiling from the requested dBTP ceiling (default −1 dBTP ≈ 0.891
-    # linear), opening slightly with strength when no explicit ceiling is set.
-    if tp_ceiling is not None:
-        limit = round(10 ** (ceiling_dbtp / 20), 3)
-    else:
-        limit = round(0.89 + intensity * 0.04, 3)
+    # Final limiter ceiling. alimiter constrains SAMPLE peaks, but lossy
+    # encoders reconstruct INTER-SAMPLE peaks above them — so we limit 0.4 dB
+    # below the requested dBTP ceiling to keep the delivered true peak at or
+    # under the promise (verified by the post-render QC measurement).
+    limit = round(10 ** ((ceiling_dbtp - 0.4) / 20), 3)
 
     safe_warmth = max(0.0, min(1.0, float(warmth)))
     # Push signal into the saturation curve, then let loudnorm fix the level.

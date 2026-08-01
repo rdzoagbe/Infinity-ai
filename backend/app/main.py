@@ -273,11 +273,15 @@ def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
         dynamics = saved_analysis.get("dynamics") or None
         spectral = saved_analysis.get("spectral_balance") or None
 
+        # Master from the best FULL-LENGTH lossless source. The style preview
+        # (style-preview.mp3) is a 30-second 192 kbps excerpt and must NEVER be
+        # the mastering input — using it truncated masters to 30 s and baked in
+        # MP3 artifacts. The genre styling is applied by the master render's
+        # own `mode` chain instead.
         renders = workspace / "renders"
-        style_prev = renders / "style-preview.mp3"
         enhanced = renders / "enhanced.wav"
         cleaned = renders / "mix-cleaned.wav"
-        input_path = style_prev if style_prev.exists() else enhanced if enhanced.exists() else cleaned if cleaned.exists() else Path(file_data["stored_path"])
+        input_path = enhanced if enhanced.exists() else cleaned if cleaned.exists() else Path(file_data["stored_path"])
         output_dir = renders
         update_job_progress(job_id, 25, f"Applying {payload.mode} genre EQ + adaptive corrections…")
         render = render_master_with_ffmpeg(input_path, output_dir, payload.mode, payload.strength, payload.platform, payload.air_boost, payload.warmth, payload.low_eq, payload.mid_eq, payload.high_eq, dynamics=dynamics, spectral=spectral, target_lufs_override=payload.target_lufs, tp_ceiling=payload.tp_ceiling)
@@ -858,12 +862,11 @@ def _run_analyze_ai(job_id: str, file_data: dict, payload: AiAnalyzeRequest):
         workspace = Path(file_data["workspace"])
         renders   = workspace / "renders"
 
-        # Use best available version of the track for measurement
-        style_prev = renders / "style-preview.mp3"
+        # Measure the best FULL-LENGTH version — never the 30-second style
+        # preview, which would misrepresent the track's loudness and dynamics.
         enhanced   = renders / "enhanced.wav"
         cleaned    = renders / "mix-cleaned.wav"
-        measure_path = (style_prev if style_prev.exists()
-                        else enhanced if enhanced.exists()
+        measure_path = (enhanced if enhanced.exists()
                         else cleaned  if cleaned.exists()
                         else Path(file_data["stored_path"]))
 
