@@ -495,7 +495,14 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
 
   if (!open) return null;
 
-  const expireSession = (badFileId) => {
+  const expireSession = (badFileId, err = null) => {
+    const authProblem = /invalid or expired token|authentication required/i.test(err?.message || '');
+    if (authProblem) {
+      // The file may be fine — the sign-in token is the problem. Keep the
+      // session and tell the user what actually needs doing.
+      setError('Your sign-in has expired — please sign out and sign back in, then try again.');
+      return;
+    }
     clearSession();
     if (badFileId) {
       try {
@@ -506,7 +513,7 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
     }
     setSongBackend(null); setSongFile(null); setSongUrl(''); setRestoredName('');
     setStep(1);
-    setError('Session expired — the server restarted. Please re-upload your track.');
+    setError('Session expired — the server restarted before this file was saved durably. Please re-upload your track (new uploads survive restarts).');
   };
 
   const go = async (n) => {
@@ -518,9 +525,9 @@ export default function AudioMVPV2({ open, onClose, embedded = false, projectId 
         await fetchFileInfo(songBackend.file_id);
         setBusy(false); setStatus('');
         setStep(n);
-      } catch {
+      } catch (err) {
         setBusy(false);
-        expireSession(songBackend.file_id);
+        expireSession(songBackend.file_id, err);
       }
       return;
     }

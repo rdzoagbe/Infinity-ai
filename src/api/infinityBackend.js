@@ -33,7 +33,21 @@ async function authHeaders() {
 
 async function apiFetch(url, options = {}) {
   const headers = { ...(await authHeaders()), ...(options.headers || {}) };
-  return fetch(url, { ...options, headers });
+  let response = await fetch(url, { ...options, headers });
+  if (response.status === 401 && headers.Authorization) {
+    // The stored access token can go stale after long idle periods. Force a
+    // session refresh and retry once before surfacing an auth error.
+    try {
+      const { data } = (await supabase?.auth?.refreshSession?.()) || {};
+      const token = data?.session?.access_token;
+      if (token) {
+        response = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${token}` } });
+      }
+    } catch {
+      // fall through with the original 401
+    }
+  }
+  return response;
 }
 
 async function parseResponse(response, fallbackMessage) {
