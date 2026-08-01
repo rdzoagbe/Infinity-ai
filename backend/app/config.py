@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     infinity_auth_mode: str = "optional"
     supabase_jwt_secret: str = ""      # HS256 legacy JWT secret from Supabase settings
     supabase_url: str = ""             # enables JWKS (RS256/ES256) verification when set
+    # Durable file storage: with both set, audio files are mirrored to
+    # Supabase Storage and survive backend redeploys (see remote_storage.py).
+    supabase_service_key: str = ""
+    infinity_storage_bucket: str = "infinity-audio"
 
     # Signed download URLs. If unset, derived from the JWT secret, or random per
     # boot (dev only — links die on restart).

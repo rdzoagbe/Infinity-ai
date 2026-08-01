@@ -197,6 +197,10 @@ usage_records.
 
 ## Known risks going in
 
+- ~~Railway disk is ephemeral~~ RESOLVED: with SUPABASE_SERVICE_KEY set, audio
+  files and the metadata store mirror to Supabase Storage and survive
+  redeploys (backend/app/remote_storage.py; restore-on-miss on every
+  processing and download path).
 - GitHub Pages + Railway free-tier cold starts → "Cannot reach the backend" UX (already
   observed); mitigated with wake-up ping and honest status states.
 - Railway disk is ephemeral → files must move to Supabase Storage before beta invites.

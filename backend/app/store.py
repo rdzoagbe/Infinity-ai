@@ -51,6 +51,14 @@ def load_store() -> None:
     try:
         path = _get_store_path()
         if not path.exists():
+            # Fresh disk after a redeploy: restore the metadata store from
+            # durable storage so files/projects/jobs survive.
+            try:
+                from .remote_storage import get_remote
+                get_remote().download("_meta/_store.json", path)
+            except Exception:
+                pass
+        if not path.exists():
             return
         data = json.loads(path.read_text(encoding="utf-8"))
         FILES.update(data.get("files", {}))
@@ -85,6 +93,11 @@ def save_store() -> None:
             tmp = _get_store_path().with_suffix(".json.tmp")
             tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
             tmp.replace(_get_store_path())
+        try:
+            from .remote_storage import get_remote
+            get_remote().upload("_meta/_store.json", _get_store_path())
+        except Exception:
+            pass
     except Exception as exc:
         logger.error("Failed to save store: %s", exc)
 

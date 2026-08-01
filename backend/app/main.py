@@ -15,6 +15,7 @@ from .audio import clean_full_mix_with_ffmpeg, clean_vocals_with_ffmpeg, enhance
 from .auth import CurrentUser, current_user, owns, rate_limit, sign_path, verify_signed_path
 from .config import get_settings
 from .elite_engine import build_elite_engineering_report
+from .remote_storage import get_remote
 from .models import AiAnalyzeRequest, AnalyzeRequest, CleanVocalsRequest, EnhanceMixRequest, JobType, MixVocalBeatRequest, ProcessRequest, ProjectCreateRequest, SoundGenerateRequest, StylePreviewRequest, TransformStyleRequest
 from .store import FILES, JOBS, PROJECTS, SOUND_ASSETS, audit, complete_job, create_job, fail_job, load_store, make_id, save_store, update_job_progress, usage, user_storage_bytes
 
@@ -56,12 +57,18 @@ def cleanup_expired_files() -> None:
     removed = 0
     for file_id, record in list(FILES.items()):
         workspace = Path(record.get("workspace", ""))
+        age = None
         try:
-            age = now - workspace.stat().st_mtime if workspace.exists() else None
-        except OSError:
+            if workspace.exists():
+                age = now - workspace.stat().st_mtime
+            elif record.get("created_at"):
+                created = datetime.fromisoformat(str(record["created_at"]).replace("Z", ""))
+                age = now - created.timestamp()
+        except (OSError, ValueError):
             age = None
         if age is not None and age > ttl_seconds:
             shutil.rmtree(workspace, ignore_errors=True)
+            get_remote().delete_prefix(file_id)
             FILES.pop(file_id, None)
             removed += 1
     if removed:
@@ -94,6 +101,31 @@ def get_owned_sound(asset_id: str, user: CurrentUser) -> dict:
     if not owns(asset, user):
         raise HTTPException(status_code=404, detail="Sound asset not found")
     return asset
+
+
+def ensure_sources_local(file_data: dict, extra: tuple = ()) -> None:
+    """Restore a file's workspace inputs from durable storage after a redeploy."""
+    remote = get_remote()
+    if not remote.enabled or not file_data:
+        return
+    workspace = Path(file_data["workspace"])
+    file_workspace(file_data["file_id"])  # recreate folder structure
+    stored = Path(file_data["stored_path"])
+    if not stored.exists():
+        try:
+            rel = stored.relative_to(workspace).as_posix()
+        except ValueError:
+            rel = f"original/{stored.name}"
+        remote.restore_file(file_data["file_id"], workspace, rel)
+    for rel in extra:
+        remote.restore_file(file_data["file_id"], workspace, rel)
+
+
+def persist_workspace(file_data: dict) -> None:
+    """Push new/changed workspace files to durable storage."""
+    remote = get_remote()
+    if remote.enabled and file_data:
+        remote.sync_workspace(file_data["file_id"], Path(file_data["workspace"]))
 
 
 @app.get("/")
@@ -197,6 +229,7 @@ async def upload_audio(file: UploadFile = File(...), user: CurrentUser = Depends
     FILES[file_id] = record
     save_store()
     audit("file.upload", user.user_id, file_id=file_id, size_bytes=size)
+    persist_workspace(record)
     usage("uploaded_bytes", user.user_id, size)
     if isinstance(metadata.get("duration_seconds"), (int, float)):
         usage("audio_seconds_uploaded", user.user_id, round(metadata["duration_seconds"], 1))
@@ -208,6 +241,7 @@ async def upload_audio(file: UploadFile = File(...), user: CurrentUser = Depends
 def delete_file(file_id: str, user: CurrentUser = Depends(current_user)):
     file_data = get_owned_file(file_id, user)
     shutil.rmtree(Path(file_data["workspace"]), ignore_errors=True)
+    get_remote().delete_prefix(file_id)
     FILES.pop(file_id, None)
     save_store()
     audit("file.delete", user.user_id, file_id=file_id)
@@ -221,6 +255,7 @@ def delete_account_data(user: CurrentUser = Depends(current_user)):
     for fid, record in list(FILES.items()):
         if record.get("user_id") == user.user_id:
             shutil.rmtree(Path(record.get("workspace", "")), ignore_errors=True)
+            get_remote().delete_prefix(fid)
             FILES.pop(fid, None)
             removed_files += 1
     removed_projects = sum(1 for pid, p in list(PROJECTS.items()) if p.get("user_id") == user.user_id and PROJECTS.pop(pid, None))
@@ -246,6 +281,7 @@ def analyze_audio(payload: AnalyzeRequest, user: CurrentUser = Depends(rate_limi
     result["elite_engineering_report"] = build_elite_engineering_report(result)
     analysis_path = Path(file_data["workspace"]) / "analysis" / "analysis.json"
     analysis_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    persist_workspace(file_data)
     return complete_job(job, result=result, message="Infinity elite analysis complete")
 
 
@@ -260,6 +296,7 @@ def master_audio(payload: ProcessRequest, background_tasks: BackgroundTasks, use
 def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
     try:
         update_job_progress(job_id, 10, "Loading audio file…")
+        ensure_sources_local(file_data, extra=("renders/enhanced.wav", "renders/mix-cleaned.wav", "analysis/analysis.json"))
         workspace = Path(file_data["workspace"])
 
         # Load saved analysis for adaptive mastering (written by the analyze endpoint)
@@ -318,6 +355,7 @@ def _run_master(job_id: str, file_data: dict, payload: ProcessRequest):
                 "master_mp3": dl(payload.file_id, "master-mp3"),
             }
         msg = "Mastering complete" if render.get("status") == "completed" else f"Mastering failed: {render.get('reason', render.get('stderr', ''))}"
+        persist_workspace(file_data)
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -334,6 +372,7 @@ def style_preview(payload: StylePreviewRequest, background_tasks: BackgroundTask
 def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewRequest):
     try:
         update_job_progress(job_id, 15, "Loading audio…")
+        ensure_sources_local(file_data, extra=("renders/enhanced.wav", "renders/mix-cleaned.wav"))
         workspace = Path(file_data["workspace"])
         enhanced = workspace / "renders" / "enhanced.wav"
         cleaned = workspace / "renders" / "mix-cleaned.wav"
@@ -347,6 +386,7 @@ def _run_style_preview(job_id: str, file_data: dict, payload: StylePreviewReques
             downloads["style_preview"] = dl(payload.file_id, "style-preview")
         result = {"file_id": payload.file_id, "mode": payload.mode, "preview": result_data, "downloads": downloads}
         msg = "Style preview ready" if result_data.get("status") == "completed" else f"Style preview failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        persist_workspace(file_data)
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -363,6 +403,7 @@ def separate_stems(payload: AnalyzeRequest, background_tasks: BackgroundTasks, u
 def _run_separate_stems(job_id: str, file_data: dict):
     try:
         update_job_progress(job_id, 10, "Loading audio…")
+        ensure_sources_local(file_data, extra=())
         input_path = Path(file_data["stored_path"])
         stems_dir = Path(file_data["workspace"]) / "stems"
         update_job_progress(job_id, 30, "Separating stems…")
@@ -377,6 +418,7 @@ def _run_separate_stems(job_id: str, file_data: dict):
                 downloads[stem_name] = dl(file_data['file_id'], f"stem-{stem_name}")
         result = {"file_id": file_data["file_id"], "separation": separation, "downloads": downloads, "method": separation.get("method", "demucs"), "note": separation.get("note", "")}
         msg = "Stem separation complete" if separation.get("status") == "completed" else f"Stem separation failed: {separation.get('reason', separation.get('stderr', ''))}"
+        persist_workspace(file_data)
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -396,6 +438,7 @@ def generate_sound(payload: SoundGenerateRequest, user: CurrentUser = Depends(ra
         asset["preview_url"] = signed
         SOUND_ASSETS[asset_id] = asset
         assets.append(asset)
+        get_remote().upload(f"generated-sounds/{Path(asset['path']).name}", Path(asset['path']))
     save_store()
     audit("sound.generate", user.user_id, count=len(assets))
     result = {"prompt": payload.prompt, "intensity": payload.intensity, "genre": payload.genre, "emotion": payload.emotion, "assets": assets, "note": "Generated real downloadable WAV assets with deterministic backend synthesis."}
@@ -412,6 +455,8 @@ def download_sound_asset(asset_id: str, request: Request, exp: str | None = None
         if not owns(asset, user):
             raise HTTPException(status_code=404, detail="Sound asset not found")
     path = Path(asset["path"])
+    if not path.exists():
+        get_remote().download(f"generated-sounds/{path.name}", path)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Generated sound file is missing")
     return FileResponse(path, media_type="audio/wav", filename=asset.get("filename") or f"{asset_id}.wav")
@@ -459,6 +504,7 @@ def _build_qc_report(file_data: dict, workspace: Path) -> dict:
 @app.post("/api/v1/export/package")
 def export_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_user)):
     file_data = get_owned_file(payload.file_id, user)
+    ensure_sources_local(file_data, extra=("renders/mastered.wav", "renders/mastered.mp3", "renders/mastered-preview.mp3", "analysis/analysis.json"))
     workspace = Path(file_data["workspace"])
     original_path = Path(file_data["stored_path"])
     exports_dir = workspace / "exports"
@@ -481,6 +527,7 @@ def export_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_
     manifest_path = exports_dir / "manifest.json"
     manifest_path.write_text(json.dumps({**manifest, "downloads": downloads}, indent=2), encoding="utf-8")
     downloads["manifest"] = dl(payload.file_id, "manifest")
+    persist_workspace(file_data)
     job = create_job(JobType.export, user_id=user.user_id, message="Export package queued")
     result = {"file_id": payload.file_id, "formats": list(downloads.keys()), "downloads": downloads}
     return complete_job(job, result, "Infinity v10 export package ready")
@@ -489,6 +536,7 @@ def export_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_
 @app.post("/api/v1/export/release-package")
 def build_release_package(payload: AnalyzeRequest, user: CurrentUser = Depends(current_user)):
     file_data = get_owned_file(payload.file_id, user)
+    ensure_sources_local(file_data, extra=("renders/mastered.wav", "renders/mastered.mp3", "renders/mastered-preview.mp3"))
     workspace = Path(file_data["workspace"])
     renders = workspace / "renders"
     exports_dir = workspace / "exports"
@@ -525,6 +573,7 @@ def build_release_package(payload: AnalyzeRequest, user: CurrentUser = Depends(c
     metadata["downloads"] = {k: v for k, v in metadata["downloads"].items() if v}
     meta_path = exports_dir / "release-package.json"
     meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    persist_workspace(file_data)
     job = create_job(JobType.export, user_id=user.user_id, message="Release package ready")
     result = {"file_id": payload.file_id, "metadata": metadata, "downloads": {"release_package_json": dl(payload.file_id, "release-package")}}
     return complete_job(job, result, "Release package ready")
@@ -576,6 +625,13 @@ def download_file(file_id: str, asset_type: str, request: Request, exp: str | No
     if not path:
         raise HTTPException(status_code=400, detail="Unknown asset type")
     if not path.exists():
+        # Restore from durable storage (survives backend redeploys)
+        try:
+            rel = path.relative_to(workspace).as_posix()
+            get_remote().restore_file(file_id, workspace, rel)
+        except ValueError:
+            pass
+    if not path.exists():
         raise HTTPException(status_code=404, detail=f"Asset not found: {asset_type}")
     _media_types = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac", ".webm": "audio/webm", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".json": "application/json"}
     media_type = _media_types.get(path.suffix.lower(), "application/octet-stream")
@@ -593,6 +649,7 @@ def clean_mix(payload: AnalyzeRequest, background_tasks: BackgroundTasks, user: 
 def _run_clean_mix(job_id: str, file_data: dict):
     try:
         update_job_progress(job_id, 10, "Loading audio file…")
+        ensure_sources_local(file_data, extra=())
         input_path = Path(file_data["stored_path"])
         output_dir = Path(file_data["workspace"]) / "renders"
         update_job_progress(job_id, 30, "Noise reduction + gate…")
@@ -605,6 +662,7 @@ def _run_clean_mix(job_id: str, file_data: dict):
                 downloads["cleaned_mp3"] = dl(file_data['file_id'], "mix-cleaned-mp3")
         result = {"file_id": file_data["file_id"], "clean": result_data, "downloads": downloads}
         msg = "Mix cleaning complete" if result_data.get("status") == "completed" else f"Mix cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        persist_workspace(file_data)
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -621,6 +679,7 @@ def enhance_mix(payload: EnhanceMixRequest, background_tasks: BackgroundTasks, u
 def _run_enhance_mix(job_id: str, file_data: dict, payload: EnhanceMixRequest):
     try:
         update_job_progress(job_id, 10, "Loading audio…")
+        ensure_sources_local(file_data, extra=("renders/mix-cleaned.wav",))
         cleaned_path = Path(file_data["workspace"]) / "renders" / "mix-cleaned.wav"
         input_path = cleaned_path if cleaned_path.exists() else Path(file_data["stored_path"])
         output_dir = Path(file_data["workspace"]) / "renders"
@@ -650,8 +709,11 @@ def _run_enhance_mix(job_id: str, file_data: dict, payload: EnhanceMixRequest):
                 downloads["enhanced_mp3"] = dl(payload.file_id, "enhanced-mp3")
             if enhanced_file_id:
                 downloads["enhanced_original"] = dl(enhanced_file_id, "original")
+        if enhanced_file_id:
+            persist_workspace(FILES.get(enhanced_file_id))
         result = {"file_id": payload.file_id, "enhanced_file_id": enhanced_file_id, "enhance": result_data, "downloads": downloads}
         msg = "Mix enhancement complete" if result_data.get("status") == "completed" else f"Mix enhancement failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+        persist_workspace(file_data)
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -660,6 +722,7 @@ def _run_enhance_mix(job_id: str, file_data: dict, payload: EnhanceMixRequest):
 @app.post("/api/v1/vocal/clean")
 def clean_vocals(payload: CleanVocalsRequest, user: CurrentUser = Depends(rate_limit)):
     file_data = get_owned_file(payload.file_id, user)
+    ensure_sources_local(file_data)
     input_path = Path(file_data["stored_path"])
     output_dir = Path(file_data["workspace"]) / "renders"
     job = create_job(JobType.clean_vocals, user_id=user.user_id, message="Vocal cleaning started")
@@ -671,6 +734,7 @@ def clean_vocals(payload: CleanVocalsRequest, user: CurrentUser = Depends(rate_l
             downloads["cleaned_mp3"] = dl(payload.file_id, "cleaned-mp3")
     result = {"file_id": payload.file_id, "clean": result_data, "downloads": downloads}
     msg = "Vocal cleaning complete" if result_data.get("status") == "completed" else f"Vocal cleaning failed: {result_data.get('reason', result_data.get('stderr', ''))}"
+    persist_workspace(file_data)
     return complete_job(job, result, msg)
 
 
@@ -686,7 +750,9 @@ def mix_vocal_beat(payload: MixVocalBeatRequest, background_tasks: BackgroundTas
 def _run_vocal_beat_mix(job_id: str, vocal_data: dict, payload: MixVocalBeatRequest):
     try:
         update_job_progress(job_id, 10, "Loading vocal + beat…")
+        ensure_sources_local(vocal_data, extra=("renders/vocals-cleaned.wav",))
         beat_data = FILES.get(payload.beat_file_id, {})
+        ensure_sources_local(beat_data)
         vocal_path = Path(vocal_data["stored_path"])
         beat_path = Path(beat_data["stored_path"])
         cleaned_vocal = Path(vocal_data["workspace"]) / "renders" / "vocals-cleaned.wav"
@@ -722,6 +788,9 @@ def _run_vocal_beat_mix(job_id: str, vocal_data: dict, payload: MixVocalBeatRequ
                 downloads["mixed_original"] = dl(mixed_file_id, "original")
         result = {"vocal_file_id": payload.vocal_file_id, "beat_file_id": payload.beat_file_id, "mixed_file_id": mixed_file_id, "mix": mix_result, "downloads": downloads}
         msg = "Mix complete" if mix_result.get("status") == "completed" else f"Mix failed: {mix_result.get('reason', mix_result.get('stderr', ''))}"
+        persist_workspace(vocal_data)
+        if mixed_file_id:
+            persist_workspace(FILES.get(mixed_file_id))
         complete_job(JOBS[job_id], result, msg)
     except Exception as e:
         fail_job(job_id, str(e))
@@ -744,6 +813,7 @@ def _run_transform_style(job_id: str, file_data: dict, payload: TransformStyleRe
         import tempfile
 
         update_job_progress(job_id, 5, "Separating vocals…")
+        ensure_sources_local(file_data, extra=("renders/enhanced.wav", "renders/mix-cleaned.wav"))
         workspace = Path(file_data["workspace"])
         renders = workspace / "renders"
         stems_dir = workspace / "stems"
@@ -859,6 +929,7 @@ def _run_analyze_ai(job_id: str, file_data: dict, payload: AiAnalyzeRequest):
         import anthropic as anthropic_sdk
 
         update_job_progress(job_id, 5, "Measuring audio…")
+        ensure_sources_local(file_data, extra=("renders/enhanced.wav", "renders/mix-cleaned.wav"))
         workspace = Path(file_data["workspace"])
         renders   = workspace / "renders"
 
